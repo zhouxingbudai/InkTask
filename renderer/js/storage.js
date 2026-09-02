@@ -152,9 +152,20 @@
       return { canceled: true };
     },
 
+    /** 自定义数据目录（仅 Electron；主进程负责弹目录选择/迁移确认） */
+    async changeDataDir() {
+      if (isElectron) return api.changeDataDir();
+      return { unsupported: true };
+    },
+
+    async resetDataDir() {
+      if (isElectron) return api.resetDataDir();
+      return { unsupported: true };
+    },
+
     async getAppInfo() {
       if (isElectron) return api.getAppInfo();
-      return { version: 'dev', platform: 'web', userData: '(浏览器预览)' };
+      return { version: 'dev', platform: 'web', userData: '(浏览器预览)', dataDir: '(浏览器预览)', dataDirCustom: false };
     },
 
     webImages

@@ -984,7 +984,26 @@
     $('#set-showdone').checked = !!s.showCompleted;
     $$('#modal-settings .swatch').forEach((b) => b.classList.toggle('active', b.dataset.accent === s.accent));
     $('#ver').textContent = state.appInfo.version || '-';
-    $('#data-path').textContent = `数据目录：${state.appInfo.userData || '本机'}`;
+    const dir = state.appInfo.dataDir || state.appInfo.userData || '本机';
+    $('#data-path').textContent = `数据目录：${dir}`;
+    $('#btn-reset-dir').classList.toggle('hidden', !state.appInfo.dataDirCustom);
+    const warn = $('#data-dir-warning');
+    if (state.appInfo.dataDirWarning) {
+      warn.textContent = state.appInfo.dataDirWarning;
+      warn.classList.remove('hidden');
+    } else {
+      warn.classList.add('hidden');
+    }
+  }
+
+  /** 数据目录切换后：拉取新数据/设置/路径信息并整体刷新（编辑中则放弃未保存的外部覆盖） */
+  async function reloadFromMain() {
+    state.pendingExternalDoc = null;
+    state.doc = await Storage.getDoc();
+    state.settings = { ...state.settings, ...(await Storage.getSettings()) };
+    state.appInfo = await Storage.getAppInfo();
+    applyAccent();
+    renderAll();
   }
 
   function accelFromEvent(e) {
@@ -1081,6 +1100,30 @@
       if (!res || res.canceled) return;
       if (res.ok === false) { showToast(res.error || '导入失败'); return; }
       showToast(`导入完成：新增 ${res.added} 项，更新 ${res.updated} 项，图片 ${res.imagesRestored} 张`);
+    });
+
+    /* ---- 自定义数据目录 ---- */
+    $('#btn-change-dir').addEventListener('click', async () => {
+      await Storage.flush(); // 先落盘当前数据，避免切目录后旧队列覆盖新目录
+      const res = await Storage.changeDataDir();
+      if (!res || res.canceled || res.same || res.unsupported) {
+        if (res && res.unsupported) showToast('浏览器预览不支持自定义数据目录');
+        return;
+      }
+      if (res.ok === false) { showToast(res.error || '切换失败'); return; }
+      await reloadFromMain();
+      fillSettingsForm();
+      showToast(res.migrated ? `已切换数据目录并迁移：${U.truncate(res.dataDir, 34)}` : `已切换数据目录：${U.truncate(res.dataDir, 34)}`);
+    });
+
+    $('#btn-reset-dir').addEventListener('click', async () => {
+      await Storage.flush();
+      const res = await Storage.resetDataDir();
+      if (!res || res.canceled || res.same || res.unsupported) return;
+      if (res.ok === false) { showToast(res.error || '切换失败'); return; }
+      await reloadFromMain();
+      fillSettingsForm();
+      showToast(res.migrated ? `已恢复默认目录并迁移：${U.truncate(res.dataDir, 34)}` : `已恢复默认目录`);
     });
   }
 

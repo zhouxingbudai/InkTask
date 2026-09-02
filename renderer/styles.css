@@ -1506,6 +1506,47 @@ button {
 
 .backup-row { display: flex; gap: 8px; }
 
+/* ---------------- 数据目录切换 ---------------- */
+.dir-ctrl { display: flex; gap: 8px; }
+
+.dir-btn {
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-2);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.dir-btn:hover {
+  color: var(--text);
+  border-color: var(--border-strong);
+  background: var(--surface-2);
+}
+
+#btn-change-dir:hover {
+  color: var(--accent-strong);
+  border-color: var(--accent-glow);
+  background: var(--accent-soft);
+}
+
+#btn-reset-dir:hover {
+  color: var(--warn);
+  border-color: rgba(255, 147, 69, 0.35);
+  background: rgba(255, 147, 69, 0.1);
+}
+
+.dir-path {
+  margin-top: 4px;
+  word-break: break-all;
+  font-variant-numeric: tabular-nums;
+  user-select: text;
+  cursor: text;
+}
+
 .about p { font-size: 11.5px; color: var(--text-3); }
 
 .modal-foot { padding: 12px 18px 16px; border-top: 1px solid var(--border); }

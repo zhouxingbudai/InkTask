@@ -30,6 +30,10 @@ contextBridge.exposeInMainWorld('inktask', {
   exportBackup: () => ipcRenderer.invoke('backup:export'),
   importBackup: () => ipcRenderer.invoke('backup:import'),
 
+  // 自定义数据目录
+  changeDataDir: () => ipcRenderer.invoke('data:changeDir'),
+  resetDataDir: () => ipcRenderer.invoke('data:resetDir'),
+
   // 其他
   getAppInfo: () => ipcRenderer.invoke('app:info'),
 

@@ -33,6 +33,138 @@ let gcTimer = null;
 const ROOT = path.join(__dirname, '..');
 const ICON_PATH = path.join(ROOT, 'build', 'icon.png');
 const TRAY_ICON_PATH = path.join(ROOT, 'build', 'tray.png');
+const POINTER_FILE = 'data-dir.txt'; // 始终存放于默认 userData，指向自定义数据目录
+
+/* ------------------------------------------------------------------ */
+/* 自定义数据目录（指针文件方案）                                        */
+/* ------------------------------------------------------------------ */
+let dataDirWarning = null; // 自定义目录失效时的回退提示
+
+function defaultUserData() {
+  return app.getPath('userData');
+}
+
+function readCustomDataDir() {
+  try {
+    const raw = fs.readFileSync(path.join(defaultUserData(), POINTER_FILE), 'utf8').trim();
+    return raw || null;
+  } catch (_) {
+    return null;
+  }
+}
+
+/** 启动时解析实际数据目录：指针存在且可访问 → 用自定义目录，否则回退默认 */
+function resolveDataDir() {
+  const custom = readCustomDataDir();
+  if (custom) {
+    try {
+      if (fs.statSync(custom).isDirectory()) return { dir: custom, warning: null };
+    } catch (_) { /* 目录不存在或不可访问 */ }
+    return {
+      dir: defaultUserData(),
+      warning: `上次设置的数据目录不可用（${custom}），已临时回退到默认目录。可在设置中重新选择。`
+    };
+  }
+  return { dir: defaultUserData(), warning: null };
+}
+
+function writeDataDirPointer(dir) {
+  fs.mkdirSync(defaultUserData(), { recursive: true });
+  fs.writeFileSync(path.join(defaultUserData(), POINTER_FILE), dir, 'utf8');
+}
+
+function clearDataDirPointer() {
+  try {
+    fs.rmSync(path.join(defaultUserData(), POINTER_FILE), { force: true });
+  } catch (_) { /* ignore */ }
+}
+
+/** 把当前数据复制到目标目录（tasks.json / settings.json / images/） */
+function migrateDataTo(targetDir) {
+  for (const f of ['tasks.json', 'settings.json']) {
+    const src = path.join(store.dir, f);
+    if (fs.existsSync(src)) fs.copyFileSync(src, path.join(targetDir, f));
+  }
+  const imgSrc = store.imagesDir();
+  if (fs.existsSync(imgSrc)) {
+    fs.cpSync(imgSrc, path.join(targetDir, 'images'), { recursive: true });
+  }
+}
+
+/** 切换 store 到新目录后：重应用设置并通知渲染层 */
+function afterDataDirSwitch() {
+  dataDirWarning = null;
+  const s = store.getSettings();
+  applySettingsHotkeys(s.hotkeys, DEFAULT_SETTINGS.hotkeys);
+  applyAutoStart(s.autoStart);
+  updateTrayStats();
+  sendToRenderer('tasks-changed', store.getTasks());
+}
+
+/**
+ * 通用切换流程：选目录 → 校验可写 → 询问是否迁移 → 落盘切换
+ * @param {string|null} toDir null = 弹目录选择框由用户挑；传路径 = 直接切到该路径（恢复默认用）
+ */
+async function switchDataDir(toDir) {
+  dialogOpen += 1;
+  try {
+    let target = toDir;
+    if (target == null) {
+      const r = await dialog.showOpenDialog(win, {
+        title: '选择新的数据目录',
+        properties: ['openDirectory', 'createDirectory']
+      });
+      if (r.canceled || !r.filePaths[0]) return { canceled: true };
+      target = path.resolve(r.filePaths[0]);
+    }
+    if (path.normalize(target) === path.normalize(store.dir)) return { same: true };
+
+    // 可写性探测
+    try {
+      fs.mkdirSync(target, { recursive: true });
+      const probe = path.join(target, `.inktask-probe-${Date.now()}`);
+      fs.writeFileSync(probe, 'ok', 'utf8');
+      fs.unlinkSync(probe);
+    } catch (err) {
+      return { ok: false, error: `目录不可写：${err.message}` };
+    }
+
+    const targetHasData = fs.existsSync(path.join(target, 'tasks.json'));
+    const choice = await dialog.showMessageBox(win, {
+      type: 'question',
+      title: '切换数据目录',
+      message: `切换数据目录到：${target}`,
+      detail: targetHasData
+        ? '目标目录已存在墨办数据。\n· 迁移并切换：用当前数据覆盖目标目录\n· 直接切换：载入目标目录的现有数据'
+        : '· 迁移并切换：把当前全部数据（任务、设置、内嵌图片）复制过去\n· 直接切换：从空目录重新开始',
+      buttons: ['迁移并切换', '直接切换', '取消'],
+      defaultId: 0,
+      cancelId: 2,
+      noLink: true
+    });
+    if (choice.response === 2) return { canceled: true };
+    const migrate = choice.response === 0;
+
+    if (migrate) {
+      try {
+        migrateDataTo(target);
+      } catch (err) {
+        return { ok: false, error: `数据迁移失败：${err.message}` };
+      }
+    }
+
+    // 指针文件：切回默认目录 → 清除指针；切到自定义目录 → 写入指针
+    const isDefault = path.normalize(target) === path.normalize(defaultUserData());
+    if (isDefault) clearDataDirPointer();
+    else writeDataDirPointer(target);
+
+    store = new Store(target).init();
+    afterDataDirSwitch();
+    return { ok: true, dataDir: target, migrated: migrate };
+  } finally {
+    dialogOpen -= 1;
+  }
+}
 
 /* ------------------------------------------------------------------ */
 /* 单实例：重复启动时唤起已有面板                                        */
@@ -51,7 +183,10 @@ if (!gotLock) {
 }
 
 async function bootstrap() {
-  store = new Store(app.getPath('userData')).init();
+  const resolved = resolveDataDir();
+  store = new Store(resolved.dir).init();
+  dataDirWarning = resolved.warning;
+  if (dataDirWarning) console.warn('[data-dir]', dataDirWarning);
   createWindow();
   createTray();
   registerProtocol();
@@ -362,8 +497,15 @@ function registerIpc() {
   ipcMain.handle('app:info', () => ({
     version: app.getVersion(),
     platform: process.platform,
-    userData: app.getPath('userData')
+    userData: app.getPath('userData'),
+    dataDir: store.dir,
+    dataDirCustom: path.normalize(store.dir) !== path.normalize(app.getPath('userData')),
+    dataDirWarning
   }));
+
+  // 自定义数据目录
+  ipcMain.handle('data:changeDir', () => switchDataDir(null));
+  ipcMain.handle('data:resetDir', () => switchDataDir(defaultUserData()));
 }
 
 /* ------------------------------------------------------------------ */
