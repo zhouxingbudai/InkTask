@@ -1,0 +1,20 @@
+{
+  "name": "inktask",
+  "productName": "墨办 InkTask",
+  "version": "1.1.0",
+  "description": "深色系 Windows 本地待办：紧急度自动排序 · 剪贴板图片内嵌详情 · 全局快捷键置顶/隐藏",
+  "main": "main/main.js",
+  "author": "InkTask",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test tests/*.test.mjs",
+    "dist": "electron-builder --win nsis portable",
+    "dist:dir": "electron-builder --win --dir"
+  },
+  "devDependencies": {
+    "electron": "^44.1.1",
+    "electron-builder": "^26.15.3"
+  }
+}

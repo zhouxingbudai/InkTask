@@ -1,0 +1,105 @@
+# ADR-001：墨办（InkTask）桌面端技术架构
+
+- 状态：已采纳（Accepted）
+- 日期：2026-09-02
+- 责任人：用户（本地执行 `npm run dist` 构建与验收，检查路径见「fitness functions」）
+
+## 决策问题
+
+为一个「Windows 本地离线、深色 UI、支持剪贴板图片内嵌、全局快捷键置顶/隐藏、按紧急程度自动排序并显示到期倒计时」的办公待办工具，选择什么客户端技术栈与数据存储方案？
+
+## 目标 / 非目标
+
+**目标**
+
+1. Windows 单文件 `.exe`（NSIS 安装包 + 便携版），完全离线运行，无任何网络依赖。
+2. 剪贴板图片**内嵌在任务详情里**（所见即所得），不是附件列表。
+3. 全局快捷键：显示/隐藏面板、切换窗口置顶。
+4. 任务按「紧急程度」自动排序（逾期置顶 + 紧急度加权 + 到期临近加权），列表项旁常驻到期倒计时。
+5. 深色、精致、交互便捷的 UI。
+
+**非目标**：多端同步（S3/网盘）、团队协作、移动端。单机单用户。
+
+## 约束
+
+- 用户在 Windows 上自行构建，构建门槛要低（一条 `npm run dist`）。
+- 数据必须本地持久化且不能因崩溃损坏（原子写入）。
+- 无签名证书，需提供免安装便携版以规避 SmartScreen/杀软误报带来的安装阻碍。
+
+## 备选方案
+
+| 方案 | 结论 | 理由 |
+| --- | --- | --- |
+| **Electron + 原生 JS（无构建步骤）+ JSON 文件存储** | ✅ 采纳 | `clipboard.readImage`/`globalShortcut`/`setAlwaysOnTop`/托盘均为内置能力，图片粘贴、热键、置顶三条核心需求零插件实现；electron-builder 一键产出 NSIS + portable；渲染层不依赖打包器，`npm start` 即可跑，排障成本低 |
+| Tauri 2 + Svelte（EggDone 同款） | ❌ 否决 | 需 Rust 工具链 + WebView2 + 各插件（剪贴板图片、global-shortcut），用户侧构建门槛高；跨平台交叉编译 Windows 产物链路长、易踩坑。安装体积优势（10MB vs ~90MB）对本场景不是关键约束 |
+| C# WPF / WinUI | ❌ 否决 | 原生体积小，但开发与交付（深色精致 UI、富文本+图片、打包）工作量数倍，迭代慢 |
+| 纯 Web PWA | ❌ 否决 | 无法注册全局快捷键、无法置顶窗口、无法可靠读取系统剪贴板图片，核心需求不满足 |
+
+## 决策
+
+**Electron 桌面应用**：主进程负责窗口/托盘/全局热键/IPC/文件存储；渲染层为无构建的 HTML+CSS+JS（contextIsolation 开启，preload 暴露白名单 API）；数据存于 `%APPDATA%\inktask\`（`tasks.json` 原子写入 + `images\` 图片库 + `settings.json`）；图片经自定义 `inkimg://` 协议加载，不放宽 webSecurity。打包用 electron-builder（NSIS + portable 双产物）。
+
+## 后果
+
+**正面**
+
+- 三条核心需求（剪贴板图、热键、置顶）全部走官方稳定 API，行为可预期。
+- 无前端构建链：改 UI 直接改 HTML/CSS 即刻生效，用户可自行魔改。
+- JSON + 图片文件存储人类可读，备份即复制文件夹；提供应用内导出/导入。
+
+**负面**
+
+- 安装包体积约 70–90MB、常驻内存约 100–150MB（Chromium 内核的固定成本）。
+- 未签名 exe 可能被 SmartScreen 提示，需用户点「仍要运行」，或自购证书签名（已在 README 说明）。
+- 富文本用 `contenteditable` + 白名单净化，需严格 sanitize 防止粘贴携带脚本。
+
+## 可逆性
+
+- 渲染层与主进程通过 preload 白名单 API 解耦，未来迁移 Tauri 只需重写 IPC 适配层 → **双向门**。
+- 数据为版本化 JSON（`meta.version`），未来换 SQLite 只需写一次迁移 → **双向门**。
+- 若日后需要多端同步，可在此 JSON 结构上叠加（EggDone 的 S3 合并模式可直接借鉴）。
+
+## 系统图
+
+```
+┌─ 主进程 (Node) ────────────────────────────────┐
+│ 窗口(frameless/置顶/隐藏)  托盘(菜单/点击)        │
+│ globalShortcut(显示隐藏/置顶)  到期轮询→Notification │
+│ IPC: tasks CRUD / image save / settings / export │
+│ Store: tasks.json(原子写) images/*.png settings.json │
+│ protocol: inkimg://img/<id>.png → 本地文件        │
+└───────────────┬────────────────────────────────┘
+                │ contextBridge (inktask.* 白名单)
+┌───────────────┴────────────────────────────────┐
+│ 渲染层 (无构建 HTML/CSS/JS)                      │
+│ 快速新增 → 任务卡片(自动排序+倒计时) → 详情编辑器    │
+│ 富文本: contenteditable + paste拦截 + 图片内嵌     │
+│ 浏览器降级模式(localStorage+dataURL)→可独立预览    │
+└────────────────────────────────────────────────┘
+```
+
+## fitness functions（本地检查）
+
+| 不变量 | 检查 | 命令/位置 |
+| --- | --- | --- |
+| 紧迫度排序正确（逾期置顶、加权得分单调） | 单元测试覆盖排序矩阵 | `npm test` → `tests/urgency.test.mjs` |
+| 倒计时格式化边界（逾期/分钟/小时/天/无到期） | 单元测试 | `npm test` |
+| 存储原子性与损坏恢复（损坏文件自动备份不丢数据） | 单元测试 | `npm test` → `tests/store.test.mjs` |
+| 富文本只保留白名单标签 | sanitize 测试 | `tests/editor-sanitize.test.mjs` |
+| 打包产物双格式（NSIS+portable） | 用户侧验收 | `npm run dist` → `dist/` |
+| 全局热键冲突时降级保留旧配置 | 代码路径 + 设置页报错提示 | `main/hotkeys.js` |
+
+## 风险登记
+
+| 风险 | 概率 | 影响 | 缓解 |
+| --- | --- | --- | --- |
+| 未签名 exe 触发 SmartScreen 警告 | 高 | 低 | 同时提供 portable 版；README 指引「更多信息→仍要运行」 |
+| 热键被其他软件占用 | 中 | 中 | 注册失败自动保留旧热键并在设置页红字提示，热键可自定义 |
+| 剪贴板图片格式差异（截图工具/Office/浏览器） | 中 | 中 | paste 事件拦截 `image/*` items + 文件拖放 + 编辑器图片按钮三通道兜底 |
+| `tasks.json` 写入中断损坏 | 低 | 高 | 临时文件+rename 原子写；损坏自动改名备份并重建 |
+| 内嵌图片孤儿文件堆积 | 中 | 低 | 保存时收集引用 id，主进程定期 GC 未引用图片 |
+
+## 后续检查（最多两项）
+
+1. Windows 实机验收热键 + 托盘 + 通知（沙盒无 GUI 无法验证的项，README 附验收清单）。
+2. 125%/150% DPI 下截图确认 UI 缩放正常。

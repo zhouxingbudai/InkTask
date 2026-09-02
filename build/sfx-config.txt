@@ -1,0 +1,8 @@
+;!@Install@!UTF-8!
+Title="墨办 InkTask 便携版"
+BeginPrompt="即将解压并运行「墨办 InkTask」\n\n首次启动约需 10-30 秒解压。\n所有数据仅保存在本机，不上传任何服务器。"
+RunProgram="墨办.exe"
+ExtractTitle="墨办 InkTask"
+ExtractDialogText="正在解压，请稍候…"
+GUIMode="1"
+;!@InstallEnd@!

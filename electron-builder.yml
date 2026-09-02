@@ -1,0 +1,41 @@
+appId: com.inktask.app
+productName: 墨办
+copyright: InkTask
+
+directories:
+  output: dist
+  buildResources: build
+
+files:
+  - main/**/*
+  - preload/**/*
+  - renderer/**/*
+  - package.json
+
+# 不把 devDependencies 打进安装包（asar 内只保留运行必需文件）
+# electron / electron-builder 只在构建机上使用
+
+asar: true
+
+win:
+  icon: build/icon.png
+  # 未签名，SmartScreen 可能提示；同时产出 portable 便携版规避
+  target:
+    - target: nsis
+      arch:
+        - x64
+    - target: portable
+      arch:
+        - x64
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: 墨办
+  artifactName: InkTask-Setup-${version}.${ext}
+
+portable:
+  artifactName: InkTask-Portable-${version}.${ext}

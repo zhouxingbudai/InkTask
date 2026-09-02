@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>墨办 InkTask</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body data-accent="gold">
+<div id="app">
+
+  <!-- ============ 标题栏（可拖拽） ============ -->
+  <header id="titlebar">
+    <div class="brand">
+      <span class="logo-dot"></span>
+      <div class="brand-text">
+        <h1>墨办</h1>
+        <p id="brand-sub">眼前事 · 依次办</p>
+      </div>
+    </div>
+    <div class="tb-btns">
+      <button class="tb-btn" id="btn-search" title="筛选 (Ctrl+F)" aria-label="筛选">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.8-3.8"/></svg>
+      </button>
+      <button class="tb-btn" id="btn-settings" title="设置" aria-label="设置">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.8v2.4M12 18.8v2.4M4.5 4.5l1.7 1.7M17.8 17.8l1.7 1.7M2.8 12h2.4M18.8 12h2.4M4.5 19.5l1.7-1.7M17.8 6.2l1.7-1.7"/></svg>
+      </button>
+      <button class="tb-btn pin" id="btn-pin" title="窗口置顶 (Ctrl+Shift+P)" aria-label="置顶">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16.5V22"/><path d="M9 10.8V6a2 2 0 0 0-2-2h10a2 2 0 0 0-2 2v4.8c0 .7.4 1.3 1 1.6l1.6.8c.9.5 1.4 1.4 1.4 2.4V16a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-.4c0-1 .5-1.9 1.4-2.4l1.6-.8c.6-.3 1-.9 1-1.6z"/></svg>
+      </button>
+      <span class="tb-sep"></span>
+      <button class="tb-btn" id="btn-min" title="最小化" aria-label="最小化">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/></svg>
+      </button>
+      <button class="tb-btn" id="btn-hide" title="隐藏到托盘 (Ctrl+Shift+Space 呼出)" aria-label="隐藏">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- ============ 筛选条 ============ -->
+  <div id="search-bar" class="hidden">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.8-3.8"/></svg>
+    <input id="search-input" type="text" placeholder="筛选任务标题 / 详情，Esc 关闭" autocomplete="off">
+  </div>
+
+  <!-- ============ 分组条 ============ -->
+  <nav id="groups-bar" aria-label="项目分组"></nav>
+
+  <!-- ============ 快速新增 ============ -->
+  <section id="quick-add">
+    <div class="qa-row">
+      <button id="qa-urg" class="urg-pill u1" title="紧急度：中（点击切换）">中</button>
+      <button id="qa-group" class="qa-group-btn" title="任务将加入的分组（点击更改）">
+        <span class="qa-group-dot" id="qa-group-dot"></span>
+        <span id="qa-group-label">未分组</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg>
+      </button>
+      <input id="qa-input" type="text" placeholder="要办什么？回车创建 · Ctrl+V 直接贴图" autocomplete="off">
+      <button id="qa-due-btn" class="qa-due-btn" title="设置到期时间">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5v4.8l3 1.8"/></svg>
+        <span id="qa-due-label">到期</span>
+      </button>
+    </div>
+  </section>
+
+  <!-- ============ 任务列表 ============ -->
+  <main id="task-list"></main>
+
+  <!-- ============ 底栏 ============ -->
+  <footer id="footer">
+    <div id="stats"></div>
+    <div id="footer-actions">
+      <button id="btn-show-done" class="link-btn hidden">已完成</button>
+      <button id="btn-clear-done" class="link-btn danger hidden">清除已完成</button>
+    </div>
+  </footer>
+
+  <!-- ============ 设置面板 ============ -->
+  <div id="modal-settings" class="modal hidden">
+    <div class="modal-mask" data-close></div>
+    <div class="modal-panel">
+      <header class="modal-head">
+        <h2>设置</h2>
+        <button class="modal-close" data-close title="关闭">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </header>
+      <div class="modal-body">
+
+        <section class="set-group">
+          <h3>全局快捷键</h3>
+          <div class="set-row">
+            <span>显示 / 隐藏面板</span>
+            <input id="hk-toggle" class="hk-input" readonly placeholder="点击后按下组合键">
+          </div>
+          <div class="set-row">
+            <span>窗口置顶开关</span>
+            <input id="hk-pin" class="hk-input" readonly placeholder="点击后按下组合键">
+          </div>
+          <p class="set-tip">点击输入框后直接按下组合键（至少含 Ctrl / Alt / Shift 之一），Esc 恢复原值</p>
+          <p id="hk-error" class="set-error hidden"></p>
+        </section>
+
+        <section class="set-group">
+          <h3>通用</h3>
+          <label class="set-row switch-row">
+            <span>开机自动启动</span>
+            <span class="switch"><input type="checkbox" id="set-autostart"><i></i></span>
+          </label>
+          <label class="set-row switch-row">
+            <span>失焦自动隐藏面板</span>
+            <span class="switch"><input type="checkbox" id="set-blurhide"><i></i></span>
+          </label>
+          <label class="set-row switch-row">
+            <span>任务到期系统通知</span>
+            <span class="switch"><input type="checkbox" id="set-notify"><i></i></span>
+          </label>
+          <label class="set-row switch-row">
+            <span>列表显示已完成任务</span>
+            <span class="switch"><input type="checkbox" id="set-showdone"><i></i></span>
+          </label>
+        </section>
+
+        <section class="set-group">
+          <h3>强调色</h3>
+          <div class="swatches">
+            <button class="swatch active" data-accent="gold" title="灯金"></button>
+            <button class="swatch" data-accent="teal" title="青碧"></button>
+            <button class="swatch" data-accent="violet" title="紫晶"></button>
+          </div>
+        </section>
+
+        <section class="set-group">
+          <h3>数据</h3>
+          <div class="backup-row">
+            <button id="btn-export" class="preset-btn primary">导出备份</button>
+            <button id="btn-import" class="preset-btn ghost">导入备份</button>
+          </div>
+          <p class="set-tip" id="data-path"></p>
+          <p class="set-tip">备份文件包含任务与内嵌图片；导入按任务 ID 合并，较新内容胜出，不会覆盖本地新数据。</p>
+        </section>
+
+        <section class="set-group about">
+          <p>墨办 InkTask <span id="ver"></span> · 数据仅保存在本机</p>
+        </section>
+
+      </div>
+      <footer class="modal-foot">
+        <button id="btn-save-settings" class="preset-btn primary wide">保存设置</button>
+      </footer>
+    </div>
+  </div>
+
+  <!-- ============ 图片灯箱 ============ -->
+  <div id="lightbox" class="hidden"><img src="" alt="预览"></div>
+
+  <!-- ============ Toast ============ -->
+  <div id="toasts"></div>
+
+</div>
+
+<script src="js/util.js"></script>
+<script src="js/urgency.js"></script>
+<script src="js/storage.js"></script>
+<script src="js/editor.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
