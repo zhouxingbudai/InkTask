@@ -1152,6 +1152,8 @@
           showToast('已隐藏到托盘，Ctrl+Shift+Space 可随时呼出', { duration: 6500 });
           try { localStorage.setItem('inktask.closeHint', '1'); } catch (_) { /* */ }
         }
+      } else if (typeof a === 'string' && a.startsWith('data-migrated:')) {
+        showToast(`默认数据目录已改为程序目录下的 data 文件夹，原 ${U.truncate(a.slice('data-migrated:'.length), 30)} 的数据已自动迁移`, { duration: 6500 });
       } else if (typeof a === 'string' && a.startsWith('focus-task:')) {
         const id = a.slice('focus-task:'.length);
         if (findTask(id)) {

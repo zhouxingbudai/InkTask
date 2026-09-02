@@ -3,3 +3,7 @@ dist/
 *.log
 .DS_Store
 Thumbs.db
+
+# 开发运行数据（打包后数据位于程序目录 data/）
+/data/*
+!/data/.gitkeep

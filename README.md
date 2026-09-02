@@ -4,7 +4,7 @@
 
 **眼前事，依次办 —— 深色系 Windows 本地待办**
 
-[![Version](https://img.shields.io/badge/version-1.2.0-ffcc33?style=flat-square)](../../releases)
+[![Version](https://img.shields.io/badge/version-1.3.0-ffcc33?style=flat-square)](../../releases)
 [![Platform](https://img.shields.io/badge/platform-Windows-0078d4?style=flat-square)](../../releases)
 [![Electron](https://img.shields.io/badge/Electron-44-9feaf9?style=flat-square&logo=electron&logoColor=9feaf9)](https://www.electronjs.org/)
 [![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](./LICENSE)
@@ -65,8 +65,8 @@
 
 | 产物 | 大小 | 适用场景 |
 | --- | --- | --- |
-| `InkTask-Portable-1.2.0.exe` | 99 MB | 单文件便携版，双击即用，U 盘可带走 |
-| `InkTask-win64-1.2.0.zip` | 150 MB | 绿色解压版，适合放到固定目录长期使用 |
+| `InkTask-Portable-1.3.0.exe` | 99 MB | 单文件便携版，双击即用，U 盘可带走 |
+| `InkTask-win64-1.3.0.zip` | 150 MB | 绿色解压版，适合放到固定目录长期使用 |
 
 - **便携版**：双击后确认解压提示（首次约 10-30 秒），之后自动启动。
 - **解压版**：解压到任意目录，运行 `墨办.exe`，可发送到桌面快捷方式，启动比便携版更快。
@@ -130,6 +130,7 @@ InkTask/
 │   ├── ADR.md            # 架构决策记录
 │   └── images/           # 文档截图
 ├── build/                # 图标资源
+├── data/                 # 开发运行数据（打包后为程序目录 data/）
 └── electron-builder.yml
 ```
 
@@ -143,16 +144,20 @@ InkTask/
 
 ## 数据与隐私
 
-所有数据保存在本机，无任何网络请求、无遥测：
+所有数据保存在本机，无任何网络请求、无遥测。默认数据目录为**程序目录下的 `data\` 文件夹**（便携式，备份/搬家直接拷贝整个文件夹即可）：
 
 ```
-%APPDATA%\墨办\
-├── tasks.json      # 任务（原子写入）
-├── settings.json   # 设置
-└── images\         # 详情内嵌图片（UUID 命名）
+墨办\
+├── 墨办.exe
+└── data\
+    ├── tasks.json      # 任务（原子写入）
+    ├── settings.json   # 设置
+    └── images\         # 详情内嵌图片（UUID 命名）
 ```
 
-**自定义数据目录**：设置 → 数据 → 更改目录，可把数据放到任意位置（如网盘同步目录、自定义分区），切换时可选迁移全部数据（任务、设置、内嵌图片）；「恢复默认」一键回到系统默认目录。若上次的自定义目录不可用（如 U 盘未插入），应用自动回退默认目录并在设置中提示。
+- **单文件便携版例外**：它每次运行前自解压到临时目录，数据固定存于 `%APPDATA%\墨办 InkTask`
+- **旧版升级**：首次启动时 AppData 里的旧数据自动迁移到 `data\`（原位置保留）
+- **自定义数据目录**：设置 → 数据 → 更改目录，可把数据放到任意位置（如网盘同步目录、自定义分区），切换时可选迁移全部数据；「恢复默认」回到程序目录的 `data\`。若上次的自定义目录不可用（如 U 盘未插入），应用自动回退默认目录并在设置中提示
 
 换机迁移：设置面板 → 数据 → 导出备份，在新机器导入即可。
 

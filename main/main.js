@@ -10,6 +10,7 @@ const {
 } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
+const os = require('node:os');
 const { pathToFileURL } = require('node:url');
 
 const { Store, DEFAULT_SETTINGS } = require('./store');
@@ -39,6 +40,7 @@ const POINTER_FILE = 'data-dir.txt'; // 始终存放于默认 userData，指向�
 /* 自定义数据目录（指针文件方案）                                        */
 /* ------------------------------------------------------------------ */
 let dataDirWarning = null; // 自定义目录失效时的回退提示
+let dataDirMigratedFrom = null; // 旧版数据首次自动迁移到便携目录时记录来源
 
 function defaultUserData() {
   return app.getPath('userData');
@@ -53,19 +55,89 @@ function readCustomDataDir() {
   }
 }
 
-/** 启动时解析实际数据目录：指针存在且可访问 → 用自定义目录，否则回退默认 */
+function isUnderTemp(dir) {
+  try {
+    const tmp = fs.realpathSync(os.tmpdir()).toLowerCase();
+    const d = fs.realpathSync(dir).toLowerCase();
+    return d === tmp || d.startsWith(tmp + path.sep);
+  } catch (_) {
+    return false;
+  }
+}
+
+/**
+ * 计算默认数据目录（便携优先）：
+ * - 打包运行：exe 同级 data/（7z SFX 自解压到临时目录的情况回退 AppData，避免数据被清理）
+ * - 开发运行：项目根 data/
+ */
+function defaultDataDir() {
+  if (!app.isPackaged) return path.join(ROOT, 'data');
+  const exeDir = path.dirname(app.getPath('exe'));
+  if (isUnderTemp(exeDir)) return defaultUserData();
+  return path.join(exeDir, 'data');
+}
+
+function ensureWritable(dir) {
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    const probe = path.join(dir, `.inktask-probe-${Date.now()}`);
+    fs.writeFileSync(probe, 'ok', 'utf8');
+    fs.unlinkSync(probe);
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+/**
+ * 升级到便携默认目录的首次运行：旧版数据在 AppData，目标 data/ 还没有数据，
+ * 则把任务 / 设置 / 图片整体复制过去（原位置保留不动）。
+ */
+function migrateFromAppDataIfFirstRun(targetDir) {
+  if (path.normalize(targetDir) === path.normalize(defaultUserData())) return;
+  if (fs.existsSync(path.join(targetDir, 'tasks.json'))) return;
+  const srcDir = defaultUserData();
+  if (!fs.existsSync(path.join(srcDir, 'tasks.json'))) return;
+  try {
+    const doc = JSON.parse(fs.readFileSync(path.join(srcDir, 'tasks.json'), 'utf8'));
+    if (!doc || !Array.isArray(doc.tasks) || doc.tasks.length === 0) return;
+  } catch (_) { return; }
+  try {
+    fs.mkdirSync(targetDir, { recursive: true });
+    for (const f of ['tasks.json', 'settings.json']) {
+      const src = path.join(srcDir, f);
+      if (fs.existsSync(src)) fs.copyFileSync(src, path.join(targetDir, f));
+    }
+    const imgSrc = path.join(srcDir, 'images');
+    if (fs.existsSync(imgSrc)) fs.cpSync(imgSrc, path.join(targetDir, 'images'), { recursive: true });
+    dataDirMigratedFrom = srcDir;
+  } catch (err) {
+    console.warn('[data-dir] 旧数据迁移失败:', err.message);
+  }
+}
+
+/** 启动时解析实际数据目录：自定义指针优先，否则用便携默认目录（必要时自动迁移旧数据） */
 function resolveDataDir() {
+  const def = defaultDataDir();
   const custom = readCustomDataDir();
-  if (custom) {
+  if (custom && path.normalize(custom) !== path.normalize(def)) {
     try {
       if (fs.statSync(custom).isDirectory()) return { dir: custom, warning: null };
     } catch (_) { /* 目录不存在或不可访问 */ }
     return {
-      dir: defaultUserData(),
+      dir: def,
       warning: `上次设置的数据目录不可用（${custom}），已临时回退到默认目录。可在设置中重新选择。`
     };
   }
-  return { dir: defaultUserData(), warning: null };
+  if (!ensureWritable(def)) {
+    if (path.normalize(def) === path.normalize(defaultUserData())) return { dir: def, warning: null };
+    return {
+      dir: defaultUserData(),
+      warning: `默认数据目录不可写（${def}），已回退到系统目录。可在设置中另选位置。`
+    };
+  }
+  migrateFromAppDataIfFirstRun(def);
+  return { dir: def, warning: null };
 }
 
 function writeDataDirPointer(dir) {
@@ -154,7 +226,7 @@ async function switchDataDir(toDir) {
     }
 
     // 指针文件：切回默认目录 → 清除指针；切到自定义目录 → 写入指针
-    const isDefault = path.normalize(target) === path.normalize(defaultUserData());
+    const isDefault = path.normalize(target) === path.normalize(defaultDataDir());
     if (isDefault) clearDataDirPointer();
     else writeDataDirPointer(target);
 
@@ -188,6 +260,12 @@ async function bootstrap() {
   dataDirWarning = resolved.warning;
   if (dataDirWarning) console.warn('[data-dir]', dataDirWarning);
   createWindow();
+  // 旧数据自动迁移到便携 data/ 目录时，告知用户去向
+  if (dataDirMigratedFrom) {
+    win.webContents.once('did-finish-load', () => {
+      sendToRenderer('action', `data-migrated:${dataDirMigratedFrom}`);
+    });
+  }
   createTray();
   registerProtocol();
   registerIpc();
@@ -499,13 +577,13 @@ function registerIpc() {
     platform: process.platform,
     userData: app.getPath('userData'),
     dataDir: store.dir,
-    dataDirCustom: path.normalize(store.dir) !== path.normalize(app.getPath('userData')),
+    dataDirCustom: path.normalize(store.dir) !== path.normalize(defaultDataDir()),
     dataDirWarning
   }));
 
   // 自定义数据目录
   ipcMain.handle('data:changeDir', () => switchDataDir(null));
-  ipcMain.handle('data:resetDir', () => switchDataDir(defaultUserData()));
+  ipcMain.handle('data:resetDir', () => switchDataDir(defaultDataDir()));
 }
 
 /* ------------------------------------------------------------------ */
