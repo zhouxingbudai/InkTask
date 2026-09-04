@@ -10,6 +10,8 @@ files:
   - main/**/*
   - preload/**/*
   - renderer/**/*
+  - build/*.png
+  - build/*.ico
   - package.json
 
 # 不把 devDependencies 打进安装包（asar 内只保留运行必需文件）

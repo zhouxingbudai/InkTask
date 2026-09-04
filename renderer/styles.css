@@ -1136,6 +1136,195 @@ button {
 
 .created-at { font-size: 11px; color: var(--text-3); }
 
+/* ---------------- 重复任务 ---------------- */
+.recur-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-2);
+  padding: 1px 8px 1px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+}
+
+.recur-chip svg { width: 11px; height: 11px; color: var(--accent); flex: none; }
+.recur-chip i { font-style: normal; }
+.recur-chip .done {
+  font-style: normal;
+  font-weight: 700;
+  color: var(--ok);
+  font-size: 10.5px;
+  margin-left: 2px;
+  padding-left: 6px;
+  border-left: 1px solid var(--border);
+}
+
+.streak-chip {
+  flex: none;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-glow);
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-variant-numeric: tabular-nums;
+}
+
+.recur-edit-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface-3);
+  color: var(--text-2);
+  font-size: 12px;
+  transition: all 0.14s;
+}
+
+.recur-edit-btn svg { width: 13px; height: 13px; }
+.recur-edit-btn:hover { color: var(--text); border-color: var(--border-strong); }
+.recur-edit-btn.has {
+  color: var(--accent-strong);
+  border-color: var(--accent-glow);
+  background: var(--accent-soft);
+}
+.recur-edit-btn.has:hover { color: var(--accent-strong); border-color: var(--accent); }
+
+.recur-stat {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin: 8px 0 2px;
+  padding: 7px 11px;
+  border-radius: var(--radius-s);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  font-size: 11.5px;
+  color: var(--text-2);
+}
+
+.recur-stat .rs-done { color: var(--ok); font-weight: 700; }
+.recur-stat .rs-todo { color: var(--warn); font-weight: 700; }
+.recur-stat .rs-streak b { color: var(--accent-strong); font-variant-numeric: tabular-nums; }
+.recur-stat .rs-last { color: var(--text-3); margin-left: auto; }
+
+/* 打卡后的勾选按钮（本周期已完成） */
+.check.done-now {
+  border-color: var(--ok);
+  box-shadow: 0 0 0 1px rgba(67, 198, 135, 0.25), 0 0 10px rgba(67, 198, 135, 0.18);
+}
+
+.check.done-now::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(circle, rgba(67, 198, 135, 0.28), transparent 70%);
+}
+
+/* ---------------- 重复频率弹出层 ---------------- */
+.r-pop {
+  position: fixed;
+  z-index: 90;
+  width: 218px;
+  padding: 7px;
+  background: var(--surface-3);
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  box-shadow: var(--shadow-2);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  animation: pop-in 0.16s ease;
+}
+
+.r-sep { height: 1px; background: var(--border); margin: 5px 4px; }
+
+.r-opt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 32px;
+  padding: 0 9px;
+  border-radius: 8px;
+  color: var(--text-2);
+  font-size: 12.5px;
+  text-align: left;
+  transition: background 0.12s, color 0.12s;
+}
+
+.r-opt:hover { background: var(--surface-2); color: var(--text); }
+
+.r-opt-ico {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  flex: none;
+}
+
+.r-opt-ico svg { width: 13px; height: 13px; color: var(--text-3); }
+.r-opt.cur .r-opt-ico svg { color: var(--accent-strong); }
+.r-opt-ico svg .r-slash { stroke: var(--danger); stroke-width: 2; opacity: 0.85; }
+
+.r-opt-name { flex: 1; }
+
+/* 当前项右侧的对勾（直接子元素，区别于图标容器里的 svg） */
+.r-opt > svg {
+  width: 13px;
+  height: 13px;
+  color: var(--accent-strong);
+  display: none;
+  flex: none;
+}
+
+.r-opt.cur > svg { display: block; }
+.r-opt.cur { color: var(--text); font-weight: 600; }
+
+.r-custom {
+  padding: 4px 6px 6px;
+  border-radius: 8px;
+  transition: background 0.12s;
+}
+
+.r-custom.cur { background: var(--accent-soft); }
+.r-custom-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--text-2);
+  font-size: 12.5px;
+}
+
+.r-custom.cur .r-custom-row { color: var(--text); font-weight: 600; }
+
+.r-iv-stepper { background: var(--surface-2); }
+.r-iv-stepper b { min-width: 26px; text-align: center; font-variant-numeric: tabular-nums; color: var(--text); }
+
+.r-iv-ok {
+  margin-top: 6px;
+  width: 100%;
+  height: 26px;
+  border-radius: 7px;
+  border: 1px solid var(--accent-glow);
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-size: 11.5px;
+  font-weight: 600;
+  transition: all 0.13s;
+}
+
+.r-iv-ok:hover { background: var(--accent); color: #141005; }
+.r-iv-ok.same { opacity: 0.55; cursor: default; }
+.r-iv-ok.same:hover { background: var(--accent-soft); color: var(--accent-strong); }
+
 .icon-btn {
   display: grid;
   place-items: center;

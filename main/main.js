@@ -33,7 +33,6 @@ let gcTimer = null;
 
 const ROOT = path.join(__dirname, '..');
 const ICON_PATH = path.join(ROOT, 'build', 'icon.png');
-const TRAY_ICON_PATH = path.join(ROOT, 'build', 'tray.png');
 const POINTER_FILE = 'data-dir.txt'; // 始终存放于默认 userData，指向自定义数据目录
 
 /* ------------------------------------------------------------------ */
@@ -357,10 +356,23 @@ function togglePin() {
 /* ------------------------------------------------------------------ */
 /* 托盘                                                                */
 /* ------------------------------------------------------------------ */
+function trayIcon() {
+  // Windows 托盘优先用多尺寸 ICO；其余平台 / 缺失时回退 PNG
+  const candidates = process.platform === 'win32'
+    ? [path.join(ROOT, 'build', 'tray.ico'), path.join(ROOT, 'build', 'tray.png'), path.join(ROOT, 'build', 'icon.png')]
+    : [path.join(ROOT, 'build', 'tray.png'), path.join(ROOT, 'build', 'icon.png')];
+  for (const p of candidates) {
+    try {
+      if (!fs.existsSync(p)) continue;
+      const img = nativeImage.createFromPath(p);
+      if (!img.isEmpty()) return img;
+    } catch (_) { /* 尝试下一个候选 */ }
+  }
+  return nativeImage.createEmpty();
+}
+
 function createTray() {
-  const img = fs.existsSync(TRAY_ICON_PATH)
-    ? nativeImage.createFromPath(TRAY_ICON_PATH)
-    : nativeImage.createFromPath(ICON_PATH);
+  const img = trayIcon();
   tray = new Tray(img);
   tray.setToolTip('墨办 InkTask');
   rebuildTrayMenu();

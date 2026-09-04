@@ -1,4 +1,4 @@
-/* global window, document, Storage, DetailEditor, Util, Urgency */
+/* global window, document, Storage, DetailEditor, Util, Urgency, Recur */
 /**
  * app.js — 墨办渲染层主逻辑
  * 数据流：state.doc（内存单一事实源）→ 渲染；所有变更 persist() 防抖落盘。
@@ -10,6 +10,7 @@
   const $$ = (sel, el) => Array.from((el || document).querySelectorAll(sel));
   const U = window.Util;
   const urg = window.Urgency;
+  const rec = window.Recur;
 
   /* ================= 状态 ================= */
   const state = {
@@ -91,6 +92,10 @@
       urgency: urg.clampUrgency(opts.urgency == null ? 1 : opts.urgency),
       dueAt: opts.dueAt == null ? null : Number(opts.dueAt),
       groupId: opts.groupId || null,
+      recur: rec.normalize(opts.recur),
+      streak: 0,
+      lastDoneAt: null,
+      lastDoneOccur: null,
       completed: false,
       completedAt: null,
       createdAt: now,
@@ -114,12 +119,26 @@
   function completeToggle(id) {
     const t = findTask(id);
     if (!t) return;
+    // 重复任务：勾选 = 打卡本周期，dueAt 推进到下次出现并保持未完成
+    if (t.recur && !t.completed) { completeRecurring(t); return; }
     t.completed = !t.completed;
     t.completedAt = t.completed ? Date.now() : null;
     t.updatedAt = Date.now();
     if (!t.completed) t.notifiedDue = false;
     persist();
     renderAll();
+  }
+
+  /** 重复任务打卡：可撤销 */
+  function completeRecurring(t) {
+    const prev = rec.applyComplete(t, Date.now());
+    persist();
+    renderAll();
+    const nextLabel = t.dueAt != null ? U.fmtDueLabel(t.dueAt) : '下次';
+    showToast(`已打卡「${U.truncate(t.title, 14)}」 · 下次 ${nextLabel}`, {
+      actionLabel: '撤销',
+      onAction: () => { rec.undoComplete(t, prev); persist(); renderAll(); }
+    });
   }
 
   /** 带撤销的删除（5 秒内可恢复，图片 GC 在主进程延迟执行，不会误删） */
@@ -241,11 +260,13 @@
     const overdue = t.dueAt != null && t.dueAt < now && !t.completed;
     const excerpt = !open ? `<span class="excerpt">${esc(U.truncate(U.stripHtml(t.detailHtml), 46))}</span>` : '';
     const grp = state.activeGroup === 'all' && t.groupId ? findGroup(t.groupId) : null;
+    const isRec = !!t.recur;
+    const doneNow = isRec && rec.doneCurrentPeriod(t);
 
     return `
-<article class="task u${t.urgency}${overdue ? ' is-overdue' : ''}${open ? ' open' : ''}" data-id="${t.id}">
+<article class="task u${t.urgency}${overdue ? ' is-overdue' : ''}${open ? ' open' : ''}${isRec ? ' is-recur' : ''}" data-id="${t.id}">
   <span class="rail" ${grp ? `style="background:${grp.color}"` : ''}></span>
-  <button class="check" data-act="toggle" title="完成 / 取消完成" aria-label="完成"></button>
+  <button class="check${doneNow ? ' done-now' : ''}" data-act="toggle" title="${isRec ? '打卡 / 撤销打卡' : '完成 / 取消完成'}" aria-label="完成"></button>
   <div class="task-main">
     <div class="task-head" data-act="expand">
       <div class="title-wrap">
@@ -253,12 +274,14 @@
         <div class="task-meta">
           <span class="urg-chip u${t.urgency}">${level.label}</span>
           ${grp ? `<span class="grp-chip" style="--g-color:${grp.color}">${esc(grp.name)}</span>` : ''}
+          ${isRec ? `<span class="recur-chip" title="重复任务">${ICON.repeat}<i>${esc(rec.labelOf(t.recur))}</i>${doneNow ? '<b class="done">已打卡</b>' : ''}</span>` : ''}
           ${t.dueAt != null ? `<span class="due-chip">${esc(U.fmtDueLabel(t.dueAt))}</span>` : ''}
           ${nImg > 0 ? `<span class="img-chip">${ICON.image}${nImg}</span>` : ''}
           ${excerpt}
         </div>
       </div>
       <div class="task-side">
+        ${isRec && t.streak > 1 ? `<span class="streak-chip" title="连续完成 ${t.streak} 个周期">连续 ${t.streak} 次</span>` : ''}
         ${cd ? `<span class="countdown ${cd.cls}" data-cd="${t.dueAt}" title="到期时间">${esc(cd.text)}</span>` : ''}
         <span class="chev">${ICON.chevron}</span>
       </div>
@@ -274,12 +297,16 @@
     const grp = t.groupId ? findGroup(t.groupId) : null;
     const d = new Date(t.createdAt);
     const created = `${d.getMonth() + 1}月${d.getDate()}日 ${U.fmtClock(t.createdAt)}`;
+    const recurLabel = t.recur ? rec.labelOf(t.recur) : '不重复';
     return `
 <div class="detail-controls">
   <div class="urg-selector" data-act="urg-selector">
     ${urg.LEVELS.map((lv, i) => `<button data-urg="${i}" class="urg-opt u${i}${i === t.urgency ? ' active' : ''}">${lv.label}</button>`).join('')}
   </div>
   <button class="due-edit-btn" data-act="due-edit">${ICON.clock}<span>${esc(dueLabel)}</span></button>
+  <button class="recur-edit-btn${t.recur ? ' has' : ''}" data-act="recur-edit" title="重复频率">
+    ${ICON.repeat}<span>${esc(recurLabel)}</span>
+  </button>
   <button class="grp-edit-btn${grp ? ' has' : ''}" data-act="group-edit"${grp ? ` style="--g-color:${grp.color}"` : ''} title="移动到分组">
     <span class="grp-edit-dot"></span><span>${grp ? esc(grp.name) : '分组'}</span>
   </button>
@@ -287,6 +314,11 @@
   <span class="created-at" title="创建时间">建于 ${created}</span>
   <button class="icon-btn danger" data-act="delete" title="删除任务">${ICON.trash}</button>
 </div>
+${t.recur ? `<div class="recur-stat">
+  ${rec.doneCurrentPeriod(t) ? `<span class="rs-done">本周期已打卡</span>` : '<span class="rs-todo">本周期未打卡</span>'}
+  <span class="rs-streak">连续 <b>${t.streak || 0}</b> 个周期</span>
+  ${t.lastDoneAt ? `<span class="rs-last">上次 ${esc(U.fmtDueLabel(t.lastDoneAt))}</span>` : '<span class="rs-last">尚未开始</span>'}
+</div>` : ''}
 <div class="editor-slot"></div>`;
   }
 
@@ -689,6 +721,73 @@
     });
   }
 
+  /* ================= 重复频率弹出层 ================= */
+  /**
+   * 重复频率选择器：不重复 / 每天 / 工作日 / 每周 / 每月 / 自定义每 N 天。
+   * @param {HTMLElement} anchor 锚点按钮
+   * @param {object|null} current 当前 recur
+   * @param {(recur:object|null)=>void} cb 选择回调
+   */
+  function toggleRecurPopover(anchor, current, cb) {
+    closeRecurPopover();
+    const pop = document.createElement('div');
+    pop.className = 'r-pop';
+    document.body.appendChild(pop);
+    let every = current && current.kind === 'interval' ? (current.every || 2) : 2;
+
+    function render() {
+      const isCur = (k) => current && current.kind === k;
+      pop.innerHTML = `
+        <button class="r-opt${!current ? ' cur' : ''}" data-r="">
+          <span class="r-opt-ico">${ICON.repeatOff}</span><span class="r-opt-name">不重复</span>${ICON.check}
+        </button>
+        <div class="r-sep"></div>
+        ${rec.KINDS.filter((k) => k.kind !== 'interval').map((k) => `
+          <button class="r-opt${isCur(k.kind) ? ' cur' : ''}" data-r="${k.kind}">
+            <span class="r-opt-ico">${ICON.repeat}</span><span class="r-opt-name">${k.label}</span>${ICON.check}
+          </button>`).join('')}
+        <div class="r-sep"></div>
+        <div class="r-custom${isCur('interval') ? ' cur' : ''}">
+          <div class="r-custom-row">
+            <span class="r-opt-ico">${ICON.repeat}</span>
+            <span class="r-opt-name">每</span>
+            <span class="dp-stepper r-iv-stepper" data-unit="iv">
+              <button data-d="-1" title="减 1 天">−</button><b>${every}</b><button data-d="1" title="加 1 天">＋</button>
+            </span>
+            <span class="r-opt-name">天一次</span>
+          </div>
+          <button class="r-iv-ok${isCur('interval') && current.every === every ? ' same' : ''}" data-iv-ok>设为此频率</button>
+        </div>`;
+    }
+
+    pop.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const step = e.target.closest('.r-iv-stepper button');
+      if (step) {
+        every = Math.min(365, Math.max(2, every + Number(step.dataset.d)));
+        render();
+        return;
+      }
+      if (e.target.closest('[data-iv-ok]')) {
+        cb({ kind: 'interval', every });
+        closeRecurPopover();
+        return;
+      }
+      const opt = e.target.closest('.r-opt');
+      if (opt) {
+        cb(opt.dataset.r || null);
+        closeRecurPopover();
+      }
+    });
+
+    render();
+    requestAnimationFrame(() => positionPopover(pop, anchor));
+  }
+
+  function closeRecurPopover() {
+    $$('.r-pop').forEach((p) => p.remove());
+  }
+
   /** 分组管理器：新建 / 重命名 / 删除 */
   function toggleGroupManager(anchor) {
     closeGroupPopover();
@@ -827,6 +926,22 @@
           toggleDuePopover(dueBtn, t.dueAt, (at) => {
             t.dueAt = at;
             t.notifiedDue = false;
+            t.updatedAt = Date.now();
+            persist();
+            renderList();
+          });
+        }
+        return;
+      }
+
+      const recurBtn = e.target.closest('[data-act="recur-edit"]');
+      if (recurBtn) {
+        const id = recurBtn.closest('.task').dataset.id;
+        const t = findTask(id);
+        if (t) {
+          toggleRecurPopover(recurBtn, t.recur, (r) => {
+            t.recur = r;
+            if (!r) { t.streak = 0; t.lastDoneAt = null; t.lastDoneOccur = null; } // 停止重复：清理打卡痕迹
             t.updatedAt = Date.now();
             persist();
             renderList();
@@ -1192,6 +1307,7 @@
         if (!$('#lightbox').classList.contains('hidden')) { $('#lightbox').classList.add('hidden'); return; }
         if (!$('#modal-settings').classList.contains('hidden')) { closeSettings(); return; }
         if ($('.g-pop')) { closeGroupPopover(); return; }
+        if ($('.r-pop')) { closeRecurPopover(); return; }
         if ($('.due-pop')) { closeDuePopover(); return; }
         if (!$('#search-bar').classList.contains('hidden')) toggleSearch();
         else if (state.expandedId) collapseTask();
@@ -1204,12 +1320,13 @@
     });
     // 点击空白处关闭弹层
     document.addEventListener('mousedown', (e) => {
-      const inPop = e.target.closest('.due-pop') || e.target.closest('.g-pop');
-      const inAnchor = e.target.closest('[data-act="due-edit"]') || e.target.closest('[data-act="group-edit"]')
+      const inPop = e.target.closest('.due-pop') || e.target.closest('.g-pop') || e.target.closest('.r-pop');
+      const inAnchor = e.target.closest('[data-act="due-edit"]') || e.target.closest('[data-act="group-edit"]') || e.target.closest('[data-act="recur-edit"]')
         || e.target.closest('#qa-due-btn') || e.target.closest('#qa-group') || e.target.closest('.g-chip');
       if (inPop || inAnchor) return;
       closeDuePopover();
       closeGroupPopover();
+      closeRecurPopover();
     });
     window.addEventListener('beforeunload', () => { Storage.flush(); });
   }
@@ -1252,6 +1369,7 @@
       { id: U.uuid(), title: '回复客户报价邮件', detailHtml: '<p>报价单见截图，抄送王经理</p>', urgency: 3, dueAt: now + 1.5 * H, groupId: gWork.id, completed: false, completedAt: null, createdAt: now - 3 * H, updatedAt: now, notifiedDue: false },
       { id: U.uuid(), title: '项目周会材料', detailHtml: '<p>整理本周进展 + 风险清单</p>', urgency: 2, dueAt: now + 26 * H, groupId: gWork.id, completed: false, completedAt: null, createdAt: now - 5 * H, updatedAt: now, notifiedDue: false },
       { id: U.uuid(), title: '季度报表核对', detailHtml: '<p>核对 Q3 数字</p>', urgency: 1, dueAt: now - 2 * H, groupId: gWork.id, completed: false, completedAt: null, createdAt: now - 26 * H, updatedAt: now, notifiedDue: false },
+      { id: U.uuid(), title: '每日打卡', detailHtml: '<p>上班打卡，别忘签退</p>', urgency: 1, dueAt: now + 3 * H, groupId: gWork.id, recur: { kind: 'daily' }, streak: 4, lastDoneAt: now - 21 * H, lastDoneOccur: now - 21 * H, completed: false, completedAt: null, createdAt: now - 5 * 24 * 3600000, updatedAt: now, notifiedDue: false },
       { id: U.uuid(), title: '预订团建餐厅', detailHtml: '', urgency: 1, dueAt: now + 5 * 24 * 3600000, groupId: gLife.id, completed: false, completedAt: null, createdAt: now - 24 * H, updatedAt: now, notifiedDue: false },
       { id: U.uuid(), title: '买咖啡豆', detailHtml: '', urgency: 0, dueAt: null, groupId: gLife.id, completed: false, completedAt: null, createdAt: now - 30 * H, updatedAt: now, notifiedDue: false },
       { id: U.uuid(), title: '整理桌面文件', detailHtml: '', urgency: 1, dueAt: null, groupId: null, completed: true, completedAt: now - 4 * H, createdAt: now - 28 * H, updatedAt: now - 4 * H, notifiedDue: false }
@@ -1267,7 +1385,9 @@
     trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 7h16M9.5 7V5a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v2M6 7l1 13a1.5 1.5 0 0 0 1.5 1.4h7A1.5 1.5 0 0 0 17 20l1-13"/></svg>',
     chevron: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6"/></svg>',
     check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7"/></svg>',
-    plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>'
+    plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
+    repeat: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M17 2.5l3.5 3.5L17 9.5"/><path d="M20.5 6H8.5A5 5 0 0 0 3.5 11v1"/><path d="M7 21.5L3.5 18 7 14.5"/><path d="M3.5 18h12a5 5 0 0 0 5-5v-1"/></svg>',
+    repeatOff: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M17 2.5l3.5 3.5L17 9.5"/><path d="M20.5 6H8.5A5 5 0 0 0 3.5 11v1"/><path d="M7 21.5L3.5 18 7 14.5"/><path d="M3.5 18h12a5 5 0 0 0 5-5v-1"/><path d="M4 4l16 16" class="r-slash"/></svg>'
   };
 
   init();
