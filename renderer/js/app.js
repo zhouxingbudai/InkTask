@@ -26,8 +26,9 @@
     editing: false,        // 详情编辑中，暂缓外部数据覆盖
     pendingExternalDoc: null,
     appInfo: { version: 'dev', platform: 'web', userData: '' },
-    quick: { urgency: 1, dueAt: null, groupOverride: null }, // null=跟随当前视图
-    pinLocal: false
+    quick: { urgency: 1, dueAt: null, recur: null, groupOverride: null }, // null=跟随当前视图
+    pinLocal: false,
+    recurSnaps: new Map() // 重复任务 id -> 完成前快照，供「取消完成」精确回滚
   };
 
   /* ================= 数据操作 ================= */
@@ -119,26 +120,63 @@
   function completeToggle(id) {
     const t = findTask(id);
     if (!t) return;
-    // 重复任务：勾选 = 打卡本周期，dueAt 推进到下次出现并保持未完成
-    if (t.recur && !t.completed) { completeRecurring(t); return; }
-    t.completed = !t.completed;
-    t.completedAt = t.completed ? Date.now() : null;
-    t.updatedAt = Date.now();
-    if (!t.completed) t.notifiedDue = false;
+    if (!t.completed) {
+      // 完成：普通任务直接置完成；重复任务同时推进到下一周期
+      let prev = null;
+      if (t.recur) {
+        prev = rec.completeOccurrence(t, Date.now());
+        state.recurSnaps.set(id, prev);
+      } else {
+        t.completed = true;
+        t.completedAt = Date.now();
+        t.updatedAt = Date.now();
+      }
+      // 若补完成的是更早的周期且下一周期已经开始，立刻复活为待办
+      refreshRecurring();
+      persist();
+      renderAll();
+      if (prev && t.dueAt != null) {
+        showToast(`已完成「${U.truncate(t.title, 14)}」 · 下次 ${U.fmtDueLabel(t.dueAt)}`, {
+          actionLabel: '撤销',
+          onAction: () => undoCompleteRecurring(t, prev)
+        });
+      }
+    } else {
+      // 取消完成
+      if (t.recur) undoCompleteRecurring(t, state.recurSnaps.get(id) || null);
+      else {
+        t.completed = false;
+        t.completedAt = null;
+        t.updatedAt = Date.now();
+        t.notifiedDue = false;
+      }
+      persist();
+      renderAll();
+    }
+  }
+
+  /** 取消完成重复任务：优先用完成时快照精确回滚；快照缺失（重启后）按最近完成周期近似回退 */
+  function undoCompleteRecurring(t, prev) {
+    if (prev) {
+      rec.undoComplete(t, prev);
+      state.recurSnaps.delete(t.id);
+    } else {
+      t.completed = false;
+      t.completedAt = null;
+      t.updatedAt = Date.now();
+      if (t.lastDoneOccur != null) t.dueAt = t.lastDoneOccur;
+      t.streak = Math.max(0, (t.streak || 0) - 1);
+    }
     persist();
     renderAll();
   }
 
-  /** 重复任务打卡：可撤销 */
-  function completeRecurring(t) {
-    const prev = rec.applyComplete(t, Date.now());
+  /** 周期复活检查：跨过复活点的已完成重复任务回到待办（编辑中暂缓，避免打断输入） */
+  function refreshRecurring() {
+    if (state.editing) return;
+    if (!rec.refreshAll(tasks(), Date.now())) return;
     persist();
     renderAll();
-    const nextLabel = t.dueAt != null ? U.fmtDueLabel(t.dueAt) : '下次';
-    showToast(`已打卡「${U.truncate(t.title, 14)}」 · 下次 ${nextLabel}`, {
-      actionLabel: '撤销',
-      onAction: () => { rec.undoComplete(t, prev); persist(); renderAll(); }
-    });
   }
 
   /** 带撤销的删除（5 秒内可恢复，图片 GC 在主进程延迟执行，不会误删） */
@@ -147,6 +185,7 @@
     if (idx < 0) return;
     const [t] = tasks().splice(idx, 1);
     if (state.expandedId === id) state.expandedId = null;
+    state.recurSnaps.delete(id);
     persist();
     renderAll();
     showToast(`已删除「${U.truncate(t.title, 14)}」`, {
@@ -156,15 +195,21 @@
   }
 
   function clearCompleted() {
-    const removed = tasks().filter((t) => t.completed);
-    if (!removed.length) return;
-    state.doc.tasks = tasks().filter((t) => !t.completed);
+    // 重复任务不清除：它们只是本轮完成，下一周期还要回来
+    const removed = tasks().filter((t) => t.completed && !t.recur);
+    const keptRec = tasks().filter((t) => t.completed && t.recur);
+    if (!removed.length && !keptRec.length) return;
+    if (removed.length) state.doc.tasks = tasks().filter((t) => !(t.completed && !t.recur));
     persist();
     renderAll();
-    showToast(`已清除 ${removed.length} 项已完成`, {
-      actionLabel: '撤销',
-      onAction: () => { state.doc.tasks.push(...removed); persist(); renderAll(); }
-    });
+    if (removed.length) {
+      showToast(`已清除 ${removed.length} 项已完成${keptRec.length ? `（${keptRec.length} 项重复任务保留）` : ''}`, {
+        actionLabel: '撤销',
+        onAction: () => { state.doc.tasks.push(...removed); persist(); renderAll(); }
+      });
+    } else {
+      showToast(`${keptRec.length} 项重复任务保留，到期后自动回到待办`);
+    }
   }
 
   /* ================= 渲染 ================= */
@@ -261,12 +306,11 @@
     const excerpt = !open ? `<span class="excerpt">${esc(U.truncate(U.stripHtml(t.detailHtml), 46))}</span>` : '';
     const grp = state.activeGroup === 'all' && t.groupId ? findGroup(t.groupId) : null;
     const isRec = !!t.recur;
-    const doneNow = isRec && rec.doneCurrentPeriod(t);
 
     return `
 <article class="task u${t.urgency}${overdue ? ' is-overdue' : ''}${open ? ' open' : ''}${isRec ? ' is-recur' : ''}" data-id="${t.id}">
   <span class="rail" ${grp ? `style="background:${grp.color}"` : ''}></span>
-  <button class="check${doneNow ? ' done-now' : ''}" data-act="toggle" title="${isRec ? '打卡 / 撤销打卡' : '完成 / 取消完成'}" aria-label="完成"></button>
+  <button class="check" data-act="toggle" title="${isRec ? '完成（下一周期自动恢复）/ 取消完成' : '完成 / 取消完成'}" aria-label="完成"></button>
   <div class="task-main">
     <div class="task-head" data-act="expand">
       <div class="title-wrap">
@@ -274,7 +318,7 @@
         <div class="task-meta">
           <span class="urg-chip u${t.urgency}">${level.label}</span>
           ${grp ? `<span class="grp-chip" style="--g-color:${grp.color}">${esc(grp.name)}</span>` : ''}
-          ${isRec ? `<span class="recur-chip" title="重复任务">${ICON.repeat}<i>${esc(rec.labelOf(t.recur))}</i>${doneNow ? '<b class="done">已打卡</b>' : ''}</span>` : ''}
+          ${isRec ? `<span class="recur-chip" title="重复任务：完成进入已完成，下一周期自动恢复">${ICON.repeat}<i>${esc(rec.labelOf(t.recur))}</i></span>` : ''}
           ${t.dueAt != null ? `<span class="due-chip">${esc(U.fmtDueLabel(t.dueAt))}</span>` : ''}
           ${nImg > 0 ? `<span class="img-chip">${ICON.image}${nImg}</span>` : ''}
           ${excerpt}
@@ -315,9 +359,10 @@
   <button class="icon-btn danger" data-act="delete" title="删除任务">${ICON.trash}</button>
 </div>
 ${t.recur ? `<div class="recur-stat">
-  ${rec.doneCurrentPeriod(t) ? `<span class="rs-done">本周期已打卡</span>` : '<span class="rs-todo">本周期未打卡</span>'}
-  <span class="rs-streak">连续 <b>${t.streak || 0}</b> 个周期</span>
-  ${t.lastDoneAt ? `<span class="rs-last">上次 ${esc(U.fmtDueLabel(t.lastDoneAt))}</span>` : '<span class="rs-last">尚未开始</span>'}
+  <span class="rs-streak">连续 <b>${t.streak || 0}</b> 次</span>
+  ${t.completed && t.dueAt != null ? `<span class="rs-next">${ICON.repeat}下次 ${esc(U.fmtDueLabel(t.dueAt))}</span>` : ''}
+  ${t.lastDoneAt ? `<span class="rs-last">上次完成 ${esc(U.fmtDueLabel(t.lastDoneAt))}</span>` : '<span class="rs-last">尚未完成过</span>'}
+  <span class="rs-tip">完成进入已完成，下一周期自动回到待办</span>
 </div>` : ''}
 <div class="editor-slot"></div>`;
   }
@@ -334,13 +379,14 @@ ${t.recur ? `<div class="recur-stat">
     wrap.innerHTML = done.map((t) => `
 <article class="task done" data-id="${t.id}">
   <span class="rail"></span>
-  <button class="check checked" data-act="toggle" title="取消完成"></button>
+  <button class="check checked" data-act="toggle" title="${t.recur ? '取消完成（重复任务）' : '取消完成'}"></button>
   <div class="task-main">
     <div class="task-head">
       <div class="title-wrap">
         <h3 class="task-title">${esc(t.title)}</h3>
         <div class="task-meta">
           ${t.dueAt != null ? `<span class="due-chip">${esc(U.fmtDueLabel(t.dueAt))}</span>` : ''}
+          ${t.recur ? `<span class="recur-chip" title="下一周期自动回到待办">${ICON.repeat}<i>下次 ${esc(U.fmtDueLabel(t.dueAt))}</i></span>` : ''}
         </div>
       </div>
     </div>
@@ -461,12 +507,21 @@ ${t.recur ? `<div class="recur-stat">
     const lbl = $('#qa-due-label');
     lbl.textContent = state.quick.dueAt != null ? U.fmtDueLabel(state.quick.dueAt) : '到期';
     $('#qa-due-btn').classList.toggle('has-due', state.quick.dueAt != null);
+    const rlbl = $('#qa-recur-label');
+    if (rlbl) {
+      rlbl.textContent = state.quick.recur ? rec.labelOf(state.quick.recur) : '重复';
+      $('#qa-recur-btn').classList.toggle('has-recur', !!state.quick.recur);
+      $('#qa-recur-btn').title = state.quick.recur
+        ? `重复频率：${rec.labelOf(state.quick.recur)}（点击更改）`
+        : '设置重复频率（如每天签退）';
+    }
   }
 
   function bindQuickAdd() {
     const input = $('#qa-input');
     const pill = $('#qa-urg');
     const dueBtn = $('#qa-due-btn');
+    const recurBtn = $('#qa-recur-btn');
 
     pill.addEventListener('click', () => {
       state.quick.urgency = (state.quick.urgency + 1) % 4;
@@ -488,9 +543,10 @@ ${t.recur ? `<div class="recur-stat">
       if (!files.length) return;
       e.preventDefault();
       const title = input.value.trim() || '图片任务';
-      const t = addTask(title, { urgency: state.quick.urgency, dueAt: state.quick.dueAt, groupId: resolveQuickGroup() });
+      const t = addTask(title, { urgency: state.quick.urgency, dueAt: state.quick.dueAt, recur: state.quick.recur, groupId: resolveQuickGroup() });
       input.value = '';
       state.quick.dueAt = null;
+      state.quick.recur = null;
       updateQuickUI();
       renderAll();
       expandTask(t.id, true);
@@ -508,6 +564,19 @@ ${t.recur ? `<div class="recur-stat">
       });
     });
 
+    // 创建时直接设定重复频率（如每天 18:00 签退）
+    if (recurBtn) {
+      recurBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleRecurPopover(recurBtn, state.quick.recur, (r) => {
+          state.quick.recur = r;
+          updateQuickUI();
+          closeRecurPopover();
+          input.focus();
+        });
+      });
+    }
+
     // 自动聚焦
     setTimeout(() => input.focus(), 60);
   }
@@ -516,9 +585,10 @@ ${t.recur ? `<div class="recur-stat">
     const input = $('#qa-input');
     const title = input.value.trim();
     if (!title) { input.focus(); return; }
-    const t = addTask(title, { urgency: state.quick.urgency, dueAt: state.quick.dueAt, groupId: resolveQuickGroup() });
+    const t = addTask(title, { urgency: state.quick.urgency, dueAt: state.quick.dueAt, recur: state.quick.recur, groupId: resolveQuickGroup() });
     input.value = '';
     state.quick.dueAt = null;
+    state.quick.recur = null;
     updateQuickUI();
     renderAll();
     // 新任务高亮一瞬
@@ -775,7 +845,9 @@ ${t.recur ? `<div class="recur-stat">
       }
       const opt = e.target.closest('.r-opt');
       if (opt) {
-        cb(opt.dataset.r || null);
+        // data-r 为字符串 kind（'' = 不重复），统一包装成对象再回调，
+        // 否则 normalize 会把字符串当非法值丢弃，重复设置静默失效
+        cb(opt.dataset.r ? { kind: opt.dataset.r } : null);
         closeRecurPopover();
       }
     });
@@ -1322,7 +1394,7 @@ ${t.recur ? `<div class="recur-stat">
     document.addEventListener('mousedown', (e) => {
       const inPop = e.target.closest('.due-pop') || e.target.closest('.g-pop') || e.target.closest('.r-pop');
       const inAnchor = e.target.closest('[data-act="due-edit"]') || e.target.closest('[data-act="group-edit"]') || e.target.closest('[data-act="recur-edit"]')
-        || e.target.closest('#qa-due-btn') || e.target.closest('#qa-group') || e.target.closest('.g-chip');
+        || e.target.closest('#qa-due-btn') || e.target.closest('#qa-recur-btn') || e.target.closest('#qa-group') || e.target.closest('.g-chip');
       if (inPop || inAnchor) return;
       closeDuePopover();
       closeGroupPopover();
@@ -1350,8 +1422,16 @@ ${t.recur ? `<div class="recur-stat">
     bindLightbox();
     bindGlobalKeys();
     listenMain();
+    // 启动即复活：应用未运行期间跨过复活点的重复任务回到待办
+    if (rec.refreshAll(tasks(), Date.now())) persist();
     renderAll();
     setInterval(updateCountdowns, 20000);
+    // 周期复活巡检：已完成重复任务到下一周期所在日 0 点自动回到待办
+    setInterval(refreshRecurring, 30000);
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) refreshRecurring();
+    });
+    window.addEventListener('focus', () => refreshRecurring());
     if (Storage.isElectron && window.inktask) {
       window.inktask.getPin().then(setPinUI).catch(() => { /* */ });
     }
@@ -1365,11 +1445,16 @@ ${t.recur ? `<div class="recur-stat">
     const H = 3600000;
     const gWork = makeGroup('工作');
     const gLife = makeGroup('生活');
+    // 每日签退：本周期到期 = 最近的 18:00（已过则为明天）
+    const signOut = new Date(now);
+    signOut.setHours(18, 0, 0, 0);
+    if (signOut.getTime() <= now) signOut.setDate(signOut.getDate() + 1);
+    const signDue = signOut.getTime();
     state.doc.tasks = [
       { id: U.uuid(), title: '回复客户报价邮件', detailHtml: '<p>报价单见截图，抄送王经理</p>', urgency: 3, dueAt: now + 1.5 * H, groupId: gWork.id, completed: false, completedAt: null, createdAt: now - 3 * H, updatedAt: now, notifiedDue: false },
       { id: U.uuid(), title: '项目周会材料', detailHtml: '<p>整理本周进展 + 风险清单</p>', urgency: 2, dueAt: now + 26 * H, groupId: gWork.id, completed: false, completedAt: null, createdAt: now - 5 * H, updatedAt: now, notifiedDue: false },
       { id: U.uuid(), title: '季度报表核对', detailHtml: '<p>核对 Q3 数字</p>', urgency: 1, dueAt: now - 2 * H, groupId: gWork.id, completed: false, completedAt: null, createdAt: now - 26 * H, updatedAt: now, notifiedDue: false },
-      { id: U.uuid(), title: '每日打卡', detailHtml: '<p>上班打卡，别忘签退</p>', urgency: 1, dueAt: now + 3 * H, groupId: gWork.id, recur: { kind: 'daily' }, streak: 4, lastDoneAt: now - 21 * H, lastDoneOccur: now - 21 * H, completed: false, completedAt: null, createdAt: now - 5 * 24 * 3600000, updatedAt: now, notifiedDue: false },
+      { id: U.uuid(), title: '下班签退', detailHtml: '<p>每天 18:00 下班打卡签退；完成后进入已完成，第二天自动回来</p>', urgency: 1, dueAt: signDue, groupId: gWork.id, recur: { kind: 'daily' }, streak: 4, lastDoneAt: signDue - 24 * H + 30 * 60000, lastDoneOccur: signDue - 24 * H, completed: false, completedAt: null, createdAt: now - 5 * 24 * 3600000, updatedAt: now, notifiedDue: false },
       { id: U.uuid(), title: '预订团建餐厅', detailHtml: '', urgency: 1, dueAt: now + 5 * 24 * 3600000, groupId: gLife.id, completed: false, completedAt: null, createdAt: now - 24 * H, updatedAt: now, notifiedDue: false },
       { id: U.uuid(), title: '买咖啡豆', detailHtml: '', urgency: 0, dueAt: null, groupId: gLife.id, completed: false, completedAt: null, createdAt: now - 30 * H, updatedAt: now, notifiedDue: false },
       { id: U.uuid(), title: '整理桌面文件', detailHtml: '', urgency: 1, dueAt: null, groupId: null, completed: true, completedAt: now - 4 * H, createdAt: now - 28 * H, updatedAt: now - 4 * H, notifiedDue: false }

@@ -1,10 +1,14 @@
 /* global window */
 /**
- * recur.js — 重复任务引擎（打卡 / 签退 / 周期性事务）
+ * recur.js — 重复任务引擎（每天签退 / 周期打卡类事务）
  *
- * 模型：任务带 recur 描述（每天 / 工作日 / 每周 / 每月 / 每 N 天）。
- * 完成一次 = 打卡：dueAt 推进到下一次出现，streak 连击计数 +1，
- * 任务保持未完成状态持续留在列表里。
+ * 模型（完成制）：重复任务平时与普通任务一致 ——
+ *   点完成 → 进入已完成区（completed = true），
+ *   同时 dueAt 推进到下一次出现时刻、streak 连击 +1；
+ *   到下一次出现所在的自然日开始时（如每天 18:00 的任务次日 0 点），
+ *   任务自动复活为待办，带着新的到期时间再次出现在列表里。
+ *
+ * 频率：每天 / 工作日 / 每周 / 每月 / 每 N 天。
  */
 (function (global) {
   'use strict';
@@ -99,55 +103,115 @@
     return at;
   }
 
+  /** ts 所在自然日的 0 点（本地时区） */
+  function startOfDay(ts) {
+    const d = new Date(ts);
+    d.setHours(0, 0, 0, 0);
+    return d.getTime();
+  }
+
   /**
-   * 打卡：推进 dueAt 到下一次出现、更新连击。
-   * 返回打卡前的快照，供撤销恢复。
+   * 完成一次：与普通任务一样置 completed = true，
+   * 同时推进 dueAt 到下一次出现、连击 +1、记录完成时间。
+   * 返回完成前的快照，供撤销恢复。
    */
-  function applyComplete(t, now) {
+  function completeOccurrence(t, now) {
     const prev = {
       dueAt: t.dueAt == null ? null : Number(t.dueAt),
       streak: t.streak || 0,
       lastDoneAt: t.lastDoneAt == null ? null : Number(t.lastDoneAt),
-      lastDoneOccur: t.lastDoneOccur == null ? null : Number(t.lastDoneOccur)
+      lastDoneOccur: t.lastDoneOccur == null ? null : Number(t.lastDoneOccur),
+      completed: !!t.completed,
+      completedAt: t.completedAt == null ? null : Number(t.completedAt),
+      notifiedDue: !!t.notifiedDue
     };
     const r = normalize(t.recur);
-    if (!r) return prev;
+    if (!r) {
+      t.completed = true;
+      t.completedAt = now;
+      t.updatedAt = now;
+      return prev;
+    }
 
     const anchor = prev.dueAt != null ? prev.dueAt : now; // 无到期时以当前时刻为锚
     const iv = intervalMs(r);
-    // 连击：上次打卡对应的周期与本次相邻（间隔 ≤ 1.5 个周期）则累计，否则重新计数
+    // 连击：本次完成的周期与上次完成的周期相邻（间隔 ≤ 1.5 个周期）则累计，否则重新计数
     const consecutive = prev.lastDoneOccur != null && (anchor - prev.lastDoneOccur) <= iv * 1.5;
 
     t.dueAt = nextDue(anchor, r, now);
     t.streak = consecutive ? (t.streak || 0) + 1 : 1;
     t.lastDoneAt = now;
     t.lastDoneOccur = anchor;
-    t.completed = false;
-    t.completedAt = null;
+    t.completed = true;
+    t.completedAt = now;
     t.notifiedDue = false;
     t.updatedAt = now;
     return prev;
   }
 
-  /** 撤销打卡：恢复快照字段 */
+  /** 撤销完成：恢复快照字段（回到点击完成前的状态） */
   function undoComplete(t, prev) {
+    if (!prev) return;
     t.dueAt = prev.dueAt;
     t.streak = prev.streak;
     t.lastDoneAt = prev.lastDoneAt;
     t.lastDoneOccur = prev.lastDoneOccur;
-    t.completed = false;
-    t.completedAt = null;
+    t.completed = !!prev.completed;
+    t.completedAt = prev.completedAt != null ? prev.completedAt : null;
+    t.notifiedDue = !!prev.notifiedDue;
     t.updatedAt = Date.now();
   }
 
   /**
-   * 当前周期是否已打卡（连击徽章旁的今日状态）：
-   * 上次打卡对应的周期紧邻当前 dueAt 即视为已完成本周期。
+   * 周期复活：已完成的重复任务，当下一次出现所在的自然日开始时
+   * （每天 18:00 的任务 → 次日 0 点）回到待办，带着新的到期时间。
+   *
+   * 兜底与对齐：
+   * - dueAt 缺失（旧数据、后补重复）→ 从最后完成记录推一个；
+   * - dueAt 落在过去的日期（离开多日 / 第二天过了到期时刻才打开应用）
+   *   → 逐周期推进到「今天或之后」的第一次出现（保留时分锚点），
+   *     然后立刻复活为待办：没到点显示「今天 HH:MM」，过了点显示「已逾期」，
+   *     绝不因打开晚了就把当天的出现静默跳过。
+   * 返回任务是否发生变化。
    */
-  function doneCurrentPeriod(t) {
+  function refresh(t, now) {
     const r = normalize(t.recur);
-    if (!r || t.lastDoneOccur == null || t.dueAt == null) return false;
-    return (t.dueAt - t.lastDoneOccur) <= intervalMs(r) * 1.5;
+    if (!r || !t.completed) return false;
+
+    let changed = false;
+    // 兜底：dueAt 缺失时从最后完成记录推一个
+    if (t.dueAt == null) {
+      const anchor = t.lastDoneOccur != null ? t.lastDoneOccur
+        : (t.completedAt != null ? t.completedAt : now);
+      t.dueAt = nextDue(anchor, r, now);
+      changed = true;
+    }
+    // 对齐：把停留在过去日期的 dueAt 推进到「今天或之后」的第一次出现
+    const today = startOfDay(now);
+    let guard = 0;
+    while (startOfDay(t.dueAt) < today && guard < 1000) {
+      t.dueAt = nextOccurrence(t.dueAt, r);
+      guard += 1;
+      changed = true;
+    }
+    // 下一次出现所在日的 0 点已到 → 复活为待办（即使该时刻已过，也以逾期形式出现）
+    if (now >= startOfDay(t.dueAt)) {
+      t.completed = false;
+      t.completedAt = null;
+      t.notifiedDue = false;
+      t.updatedAt = now;
+      return true;
+    }
+    return changed;
+  }
+
+  /** 批量复活，任一任务变化即返回 true */
+  function refreshAll(list, now) {
+    let changed = false;
+    (list || []).forEach((t) => {
+      if (refresh(t, now)) changed = true;
+    });
+    return changed;
   }
 
   global.Recur = {
@@ -158,8 +222,10 @@
     intervalMs,
     nextOccurrence,
     nextDue,
-    applyComplete,
+    startOfDay,
+    completeOccurrence,
     undoComplete,
-    doneCurrentPeriod
+    refresh,
+    refreshAll
   };
 })(typeof window !== 'undefined' ? window : globalThis);

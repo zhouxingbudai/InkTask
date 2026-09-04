@@ -290,6 +290,29 @@ button {
   border-color: var(--accent-glow);
 }
 
+/* 创建时设定重复频率 */
+.qa-recur-btn {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 8px;
+  color: var(--text-2);
+  font-size: 12px;
+  border: 1px solid transparent;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.qa-recur-btn svg { width: 14px; height: 14px; }
+.qa-recur-btn:hover { background: var(--surface-3); color: var(--text); }
+.qa-recur-btn.has-recur {
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+  border-color: var(--accent-glow);
+}
+
 /* ---------------- 到期时间弹出层（自绘日历） ---------------- */
 .due-pop {
   position: fixed;
@@ -1210,24 +1233,17 @@ button {
   color: var(--text-2);
 }
 
-.recur-stat .rs-done { color: var(--ok); font-weight: 700; }
-.recur-stat .rs-todo { color: var(--warn); font-weight: 700; }
 .recur-stat .rs-streak b { color: var(--accent-strong); font-variant-numeric: tabular-nums; }
-.recur-stat .rs-last { color: var(--text-3); margin-left: auto; }
-
-/* 打卡后的勾选按钮（本周期已完成） */
-.check.done-now {
-  border-color: var(--ok);
-  box-shadow: 0 0 0 1px rgba(67, 198, 135, 0.25), 0 0 10px rgba(67, 198, 135, 0.18);
+.recur-stat .rs-next {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--info);
+  font-weight: 700;
 }
-
-.check.done-now::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  background: radial-gradient(circle, rgba(67, 198, 135, 0.28), transparent 70%);
-}
+.recur-stat .rs-next svg { width: 12px; height: 12px; }
+.recur-stat .rs-last { color: var(--text-3); }
+.recur-stat .rs-tip { color: var(--text-3); margin-left: auto; }
 
 /* ---------------- 重复频率弹出层 ---------------- */
 .r-pop {
