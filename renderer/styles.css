@@ -1319,6 +1319,11 @@ button {
   font-size: 12.5px;
 }
 
+/* 间隔行内文字按内容占位、禁止折行：
+   若沿用 .r-opt-name 的 flex:1，两段文字会平分剩余空间，
+   「天一次」只分到约 34px 放不下三个字，末字被挤到第二行 */
+.r-custom-row .r-opt-name { flex: none; white-space: nowrap; }
+
 .r-custom.cur .r-custom-row { color: var(--text); font-weight: 600; }
 
 .r-iv-stepper { background: var(--surface-2); }
