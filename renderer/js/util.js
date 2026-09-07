@@ -44,7 +44,7 @@
     return String(n).padStart(2, '0');
   }
 
-  /** 任务到期时间的友好标签：今天 18:00 / 明天 09:00 / 周五 14:30 / 9月30日 */
+  /** 任务到期时间的友好标签：今天 18:00 / 明天 09:00 / 周五 9/11 14:30 / 9月30日 */
   function fmtDueLabel(ts) {
     if (ts == null) return '';
     const d = new Date(ts);
@@ -56,8 +56,10 @@
     if (sameDay(d, now)) return `今天 ${hm}`;
     const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
     if (sameDay(d, tomorrow)) return `明天 ${hm}`;
-    const weekLater = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 7);
-    if (d <= weekLater) return `${days[d.getDay()]} ${hm}`;
+    // 13 天内（本周末 + 下周）：星期标签附带具体日期（周三 9/9），否则用户要心算周三是几号；
+    // 覆盖到下周是为了每周重复任务的「下次」稳定显示「周三 9/16」而不在 7 天边界来回切换
+    const twoWeeks = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 13);
+    if (d <= twoWeeks) return `${days[d.getDay()]} ${d.getMonth() + 1}/${d.getDate()} ${hm}`;
     const y = d.getFullYear() !== now.getFullYear() ? `${d.getFullYear()}年` : '';
     return `${y}${d.getMonth() + 1}月${d.getDate()}日${d.getHours() === 0 && d.getMinutes() === 0 ? '' : ' ' + hm}`;
   }
