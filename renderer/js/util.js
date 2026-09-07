@@ -44,22 +44,38 @@
     return String(n).padStart(2, '0');
   }
 
-  /** 任务到期时间的友好标签：今天 18:00 / 明天 09:00 / 周五 9/11 14:30 / 9月30日 */
+  /** 任务到期时间的友好标签：今天 (9/7) 18:00 / 明天 (9/8) 09:00 / 后天 (9/9) 18:00 /
+   *  本周三 (9/9) 14:30 / 下周二 (9/15) 09:00 / 上周五 (9/4) 18:00 / 9月30日 */
   function fmtDueLabel(ts) {
     if (ts == null) return '';
     const d = new Date(ts);
     const now = new Date();
     const hm = `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
-    const sameDay = (a, b) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+    const md = `${d.getMonth() + 1}/${d.getDate()}`;
     const days = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+    const sameDay = (a, b) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+    const dayAt = (n) => new Date(now.getFullYear(), now.getMonth(), now.getDate() + n);
 
-    if (sameDay(d, now)) return `今天 ${hm}`;
-    const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
-    if (sameDay(d, tomorrow)) return `明天 ${hm}`;
-    // 13 天内（本周末 + 下周）：星期标签附带具体日期（周三 9/9），否则用户要心算周三是几号；
-    // 覆盖到下周是为了每周重复任务的「下次」稳定显示「周三 9/16」而不在 7 天边界来回切换
-    const twoWeeks = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 13);
-    if (d <= twoWeeks) return `${days[d.getDay()]} ${d.getMonth() + 1}/${d.getDate()} ${hm}`;
+    // 1-2 天粒度的相对日：同样括号标注具体日期
+    if (sameDay(d, now)) return `今天 (${md}) ${hm}`;
+    if (sameDay(d, dayAt(-1))) return `昨天 (${md}) ${hm}`;
+    if (sameDay(d, dayAt(1))) return `明天 (${md}) ${hm}`;
+    if (sameDay(d, dayAt(2))) return `后天 (${md}) ${hm}`;
+
+    // 周次判断（周一为一周起始）：本周 / 下周 / 上周，
+    // 星期不带周次会有「下周二还是这周二」的歧义
+    const weekStart = (x) => {
+      const w = new Date(x.getFullYear(), x.getMonth(), x.getDate());
+      w.setDate(w.getDate() - (w.getDay() + 6) % 7); // 周一=0 回退到本周周一
+      return w.getTime();
+    };
+    const thisWeek = weekStart(now);
+    const wk = weekStart(d);
+    const dow = days[d.getDay()].slice(1); // 「周三」→「三」
+    if (wk === thisWeek) return `本周${dow} (${md}) ${hm}`;
+    if (wk === thisWeek + 7 * 86400000) return `下周${dow} (${md}) ${hm}`;
+    if (wk === thisWeek - 7 * 86400000) return `上周${dow} (${md}) ${hm}`;
+
     const y = d.getFullYear() !== now.getFullYear() ? `${d.getFullYear()}年` : '';
     return `${y}${d.getMonth() + 1}月${d.getDate()}日${d.getHours() === 0 && d.getMinutes() === 0 ? '' : ' ' + hm}`;
   }
