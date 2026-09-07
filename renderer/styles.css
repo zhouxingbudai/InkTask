@@ -434,12 +434,21 @@ button {
 /* 时间步进器 */
 .dp-time {
   display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 8px 7px;
+  flex-direction: column;
+  gap: 7px;
+  padding: 8px 8px 8px;
   background: var(--surface-2);
   border: 1px solid var(--border);
   border-radius: 10px;
+}
+
+/* 步进器行：单行放步进器与冒号（居中）；快捷时刻另起一行，
+   避免两步进器（约 181px）+ 4 个 chip（约 185px）超出弹层内宽 248px 溢出 */
+.dp-time-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
 }
 
 .dp-stepper {
@@ -475,14 +484,14 @@ button {
 .dp-colon { font-size: 14px; font-weight: 600; color: var(--text-3); }
 
 .dp-quick-times {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
   gap: 3px;
-  margin-left: auto;
 }
 
 .dp-tq {
   height: 22px;
-  padding: 0 7px;
+  padding: 0;
   border-radius: 6px;
   font-size: 10.5px;
   color: var(--text-3);

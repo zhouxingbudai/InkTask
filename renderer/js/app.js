@@ -665,12 +665,14 @@ ${t.recur ? `<div class="recur-stat">
           <div class="dp-grid">${cells}</div>
         </div>
         <div class="dp-time">
-          <div class="dp-stepper" data-unit="h">
-            <button data-d="-1" title="减 1 小时">−</button><b>${U.pad2(st.h)}</b><button data-d="1" title="加 1 小时">＋</button>
-          </div>
-          <span class="dp-colon">:</span>
-          <div class="dp-stepper" data-unit="min">
-            <button data-d="-1" title="减 5 分钟">−</button><b>${U.pad2(st.min)}</b><button data-d="1" title="加 5 分钟">＋</button>
+          <div class="dp-time-row">
+            <div class="dp-stepper" data-unit="h">
+              <button data-d="-1" title="减 1 小时">−</button><b>${U.pad2(st.h)}</b><button data-d="1" title="加 1 小时">＋</button>
+            </div>
+            <span class="dp-colon">:</span>
+            <div class="dp-stepper" data-unit="min">
+              <button data-d="-1" title="减 5 分钟">−</button><b>${U.pad2(st.min)}</b><button data-d="1" title="加 5 分钟">＋</button>
+            </div>
           </div>
           <div class="dp-quick-times">
             ${[9, 12, 18, 21].map((h) => `<button class="dp-tq" data-h="${h}" title="${U.pad2(h)}:00">${U.pad2(h)}:00</button>`).join('')}
