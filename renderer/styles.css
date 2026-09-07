@@ -1023,6 +1023,31 @@ button {
 
 .task.done .task-title { color: var(--text-3); text-decoration: line-through; text-decoration-color: rgba(255, 255, 255, 0.25); }
 
+/* 双击标题后的行内重命名框：字号行高对齐原标题，避免换行跳动 */
+.task-title-input {
+  display: block;
+  width: 100%;
+  margin: -2px 0 -2px -6px;
+  padding: 2px 6px;
+  font-family: inherit;
+  font-size: 13.5px;
+  font-weight: 500;
+  line-height: 1.45;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1.5px solid var(--accent-strong);
+  border-radius: 7px;
+  outline: none;
+  user-select: text;
+  text-decoration: none;
+}
+
+.task-title-input:focus { box-shadow: 0 0 0 3px var(--accent-soft); }
+
+.task.done .task-title-input { color: var(--text-2); text-decoration: none; }
+
+.task-title-input::selection { background: var(--accent-soft); }
+
 .task-meta {
   display: flex;
   align-items: center;

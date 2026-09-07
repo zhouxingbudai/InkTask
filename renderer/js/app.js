@@ -194,6 +194,18 @@
     });
   }
 
+  /** 重命名任务：空值 / 未变化不落盘，避免无意义的 updatedAt 抖动 */
+  function renameTask(id, title) {
+    const t = findTask(id);
+    if (!t) return;
+    const v = String(title || '').trim();
+    if (!v || v === t.title) return false;
+    t.title = v;
+    t.updatedAt = Date.now();
+    persist();
+    return true;
+  }
+
   function clearCompleted() {
     // 普通已完成任务直接清除（可撤销）；已完成的重复任务默认保留
     // （下一周期还要回来），但 toast 上提供「一并清除」选项让用户决定去留
@@ -331,7 +343,7 @@
   <div class="task-main">
     <div class="task-head" data-act="expand">
       <div class="title-wrap">
-        <h3 class="task-title">${esc(t.title)}</h3>
+        <h3 class="task-title" title="双击重命名">${esc(t.title)}</h3>
         <div class="task-meta">
           <span class="urg-chip u${t.urgency}">${level.label}</span>
           ${grp ? `<span class="grp-chip" style="--g-color:${grp.color}">${esc(grp.name)}</span>` : ''}
@@ -400,7 +412,7 @@ ${t.recur ? `<div class="recur-stat">
   <div class="task-main">
     <div class="task-head">
       <div class="title-wrap">
-        <h3 class="task-title">${esc(t.title)}</h3>
+        <h3 class="task-title" title="双击重命名">${esc(t.title)}</h3>
         <div class="task-meta">
           ${t.dueAt != null ? `<span class="due-chip">${esc(U.fmtDueLabel(t.dueAt))}</span>` : ''}
           ${t.recur ? `<span class="recur-chip" title="下一周期自动回到待办">${ICON.repeat}<i>下次 ${esc(U.fmtDueLabel(t.dueAt))}</i></span>` : ''}
@@ -1032,6 +1044,52 @@ ${t.recur ? `<div class="recur-stat">
   }
 
   /* ================= 列表事件（委托） ================= */
+
+  /** 双击标题 → 行内重命名。Enter/失焦保存，Esc 取消；期间置 editing 暂缓后台刷新覆盖输入框 */
+  function beginTitleEdit(titleEl, t) {
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'task-title-input';
+    input.value = t.title;
+    input.maxLength = 500;
+    input.autocomplete = 'off';
+    input.spellcheck = false;
+    titleEl.replaceWith(input);
+
+    state.editing = true;
+    input.focus();
+    input.select();
+
+    let done = false;
+    const finish = (save) => {
+      if (done) return;
+      done = true;
+      const changed = save && renameTask(t.id, input.value);
+
+      // 原地换回 h3：不重建兄弟节点，紧随 blur 的那一次点击（如勾选完成）不会被吞掉
+      const h = document.createElement('h3');
+      h.className = 'task-title';
+      h.title = '双击重命名';
+      h.textContent = t.title; // renameTask 成功时已是新名；取消 / 空值时保持原值
+      input.replaceWith(h);
+
+      state.editing = false;
+      // 排序与统计都不依赖标题，无需整表重渲染；仅当筛选词不再匹配时才需要移除该卡片（稍延迟让点击先落地）
+      const f = state.filter.trim().toLowerCase();
+      if (f && !(t.title.toLowerCase().includes(f) || U.stripHtml(t.detailHtml).toLowerCase().includes(f))) {
+        setTimeout(renderList, 180);
+      } else if (state.pendingExternalDoc) {
+        adoptPendingExternal(); // 改名期间收到外部数据，编辑结束后采纳
+      }
+      if (changed) showToast('已重命名', { duration: 1800 });
+    };
+    input.addEventListener('blur', () => finish(true));
+    input.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter') { ev.preventDefault(); finish(true); }
+      if (ev.key === 'Escape') { ev.preventDefault(); finish(false); }
+    });
+  }
+
   function bindListEvents() {
     $('#task-list').addEventListener('click', (e) => {
       const toggleBtn = e.target.closest('[data-act="toggle"]');
@@ -1111,6 +1169,17 @@ ${t.recur ? `<div class="recur-stat">
       // 图片点击放大（编辑器内外均可）
       const img = e.target.closest('img.ink-img');
       if (img) { e.preventDefault(); openLightbox(img.getAttribute('src') || Storage.imageUrl(img.getAttribute('data-ink-img'))); }
+    });
+
+    // 双击任务标题 → 行内重命名（待办 / 已完成均可）
+    $('#task-list').addEventListener('dblclick', (e) => {
+      const titleEl = e.target.closest('.task-title');
+      if (!titleEl) return;
+      const taskEl = titleEl.closest('.task');
+      const t = taskEl && findTask(taskEl.dataset.id);
+      if (!t) return;
+      e.preventDefault();
+      beginTitleEdit(titleEl, t);
     });
   }
 
