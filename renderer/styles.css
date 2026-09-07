@@ -1014,12 +1014,38 @@ button {
 
 .title-wrap { min-width: 0; }
 
+.task-title-row { display: flex; align-items: flex-start; gap: 5px; min-width: 0; }
+
 .task-title {
+  flex: 1;
+  min-width: 0;
   font-size: 13.5px;
   font-weight: 500;
   line-height: 1.45;
   word-break: break-word;
 }
+
+/* 悬停标题时出现的笔形按钮：双击之外始终可用的显式重命名入口 */
+.title-edit-btn {
+  flex: none;
+  width: 22px;
+  height: 20px;
+  margin-top: 1px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  color: var(--text-3);
+  opacity: 0;
+  transition: opacity 0.12s, color 0.12s, background 0.12s;
+}
+
+.title-edit-btn svg { width: 12px; height: 12px; display: block; }
+
+.task-head:hover .title-edit-btn,
+.title-edit-btn:focus-visible { opacity: 1; }
+
+.title-edit-btn:hover { color: var(--accent-strong); background: var(--surface-3); }
 
 .task.done .task-title { color: var(--text-3); text-decoration: line-through; text-decoration-color: rgba(255, 255, 255, 0.25); }
 

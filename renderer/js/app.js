@@ -343,7 +343,10 @@
   <div class="task-main">
     <div class="task-head" data-act="expand">
       <div class="title-wrap">
-        <h3 class="task-title" title="双击重命名">${esc(t.title)}</h3>
+        <div class="task-title-row">
+          <h3 class="task-title" title="双击重命名，或点笔形按钮">${esc(t.title)}</h3>
+          <button class="title-edit-btn" data-act="title-edit" title="重命名" aria-label="重命名">${ICON.pencil}</button>
+        </div>
         <div class="task-meta">
           <span class="urg-chip u${t.urgency}">${level.label}</span>
           ${grp ? `<span class="grp-chip" style="--g-color:${grp.color}">${esc(grp.name)}</span>` : ''}
@@ -412,7 +415,10 @@ ${t.recur ? `<div class="recur-stat">
   <div class="task-main">
     <div class="task-head">
       <div class="title-wrap">
-        <h3 class="task-title" title="双击重命名">${esc(t.title)}</h3>
+        <div class="task-title-row">
+          <h3 class="task-title" title="双击重命名，或点笔形按钮">${esc(t.title)}</h3>
+          <button class="title-edit-btn" data-act="title-edit" title="重命名" aria-label="重命名">${ICON.pencil}</button>
+        </div>
         <div class="task-meta">
           ${t.dueAt != null ? `<span class="due-chip">${esc(U.fmtDueLabel(t.dueAt))}</span>` : ''}
           ${t.recur ? `<span class="recur-chip" title="下一周期自动回到待办">${ICON.repeat}<i>下次 ${esc(U.fmtDueLabel(t.dueAt))}</i></span>` : ''}
@@ -1047,6 +1053,7 @@ ${t.recur ? `<div class="recur-stat">
 
   /** 双击标题 → 行内重命名。Enter/失焦保存，Esc 取消；期间置 editing 暂缓后台刷新覆盖输入框 */
   function beginTitleEdit(titleEl, t) {
+    if (!titleEl || !titleEl.isConnected || !findTask(t.id)) return;
     const input = document.createElement('input');
     input.type = 'text';
     input.className = 'task-title-input';
@@ -1069,7 +1076,7 @@ ${t.recur ? `<div class="recur-stat">
       // 原地换回 h3：不重建兄弟节点，紧随 blur 的那一次点击（如勾选完成）不会被吞掉
       const h = document.createElement('h3');
       h.className = 'task-title';
-      h.title = '双击重命名';
+      h.title = '双击重命名，或点笔形按钮';
       h.textContent = t.title; // renameTask 成功时已是新名；取消 / 空值时保持原值
       input.replaceWith(h);
 
@@ -1091,7 +1098,63 @@ ${t.recur ? `<div class="recur-stat">
   }
 
   function bindListEvents() {
+    // 手工双击检测：不依赖系统 dblclick。面板高度有限，双击第一下展开任务常伴随滚动，
+    // 标题节点被移走后第二下会落在别处，系统双击判定（位置容差仅几像素）随之失效；
+    // 这里按「同一卡片（或原坐标附近）+ 间隔 <480ms + 未点在控件上」自行识别。
+    let lastTitleClick = null; // { id, x, y, t }
+    const TITLE_DBL_MS = 480;
+    const TITLE_DBL_DIST = 16;
+
     $('#task-list').addEventListener('click', (e) => {
+      const nowMs = Date.now();
+
+      // (0) 改名输入框内部的点击（定位光标 / 框选文字）：直接放行。
+      //     输入框位于 data-act="expand" 的卡片头里，若继续往下走会被当成展开/收起，
+      //     整表重渲染将销毁输入框，且 Chromium 移除聚焦节点不触发 blur，已输入内容静默丢失。
+      if (e.target.closest('.task-title-input')) return;
+
+      // (0.5) 正在改名时点击输入框之外：先收尾保存再处理本次点击。
+      //       真实浏览器里点击别处通常先触发自然 blur；这里兜底 blur 缺失的场景
+      //       （jsdom / 点击导致节点被移除等），避免编辑成果丢失。
+      const activeRename = $('#task-list .task-title-input');
+      if (activeRename) activeRename.dispatchEvent(new Event('blur')); // finish(true)：保存并还原 h3
+
+      // (A) 上一击在标题上且快速跟进 → 视为双击重命名（吞掉本击的展开/收起副作用）
+      if (lastTitleClick && nowMs - lastTitleClick.t <= TITLE_DBL_MS) {
+        const taskEl = e.target.closest('.task');
+        const near = Math.hypot(e.clientX - lastTitleClick.x, e.clientY - lastTitleClick.y) <= TITLE_DBL_DIST;
+        const onControl = e.target.closest('button, input, textarea, [contenteditable="true"], img.ink-img, [data-act]:not([data-act="expand"])');
+        const hit = taskEl && (taskEl.dataset.id === lastTitleClick.id || near);
+        if (hit && !onControl) {
+          const t = findTask(lastTitleClick.id);
+          const titleEl = (taskEl.dataset.id === lastTitleClick.id && taskEl.querySelector('.task-title'))
+            || $(`.task[data-id="${CSS.escape(lastTitleClick.id)}"] .task-title`);
+          lastTitleClick = null;
+          if (t && titleEl) { e.preventDefault(); beginTitleEdit(titleEl, t); return; }
+        } else {
+          lastTitleClick = null; // 点在控件 / 别的卡片上：作废，本次点击按常规处理
+        }
+      } else {
+        lastTitleClick = null;
+      }
+
+      // (B) 记录落在标题上的点击，供 (A) 判定双击
+      const titleHit = e.target.closest('.task-title');
+      if (titleHit) {
+        const tEl = titleHit.closest('.task');
+        if (tEl) lastTitleClick = { id: tEl.dataset.id, x: e.clientX, y: e.clientY, t: nowMs };
+      }
+
+      // (C) 笔形按钮：显式重命名入口（不触发展开/收起）
+      const renameBtn = e.target.closest('[data-act="title-edit"]');
+      if (renameBtn) {
+        const tEl = renameBtn.closest('.task');
+        const t = tEl && findTask(tEl.dataset.id);
+        const titleEl = tEl && tEl.querySelector('.task-title');
+        if (t && titleEl) beginTitleEdit(titleEl, t);
+        return;
+      }
+
       const toggleBtn = e.target.closest('[data-act="toggle"]');
       if (toggleBtn) { completeToggle(toggleBtn.closest('.task').dataset.id); return; }
 
@@ -1293,6 +1356,14 @@ ${t.recur ? `<div class="recur-stat">
     $('#hk-error').classList.add('hidden');
   }
 
+  /** 标题栏显示版本号：多版本共存（托盘旧实例等）时一眼分辨跑的是哪个 */
+  function renderBrandVer() {
+    const el = $('#brand-ver');
+    if (!el) return;
+    const v = state.appInfo && state.appInfo.version;
+    el.textContent = v && v !== 'dev' ? ` · v${v}` : '';
+  }
+
   function fillSettingsForm() {
     const s = state.settings;
     $('#hk-toggle').value = s.hotkeys.toggle || '';
@@ -1321,6 +1392,7 @@ ${t.recur ? `<div class="recur-stat">
     state.doc = await Storage.getDoc();
     state.settings = { ...state.settings, ...(await Storage.getSettings()) };
     state.appInfo = await Storage.getAppInfo();
+    renderBrandVer();
     applyAccent();
     renderAll();
   }
@@ -1541,6 +1613,7 @@ ${t.recur ? `<div class="recur-stat">
     const settings = await Storage.getSettings();
     state.settings = { ...state.settings, ...settings };
     state.appInfo = await Storage.getAppInfo();
+    renderBrandVer();
     applyAccent();
     updateQuickUI();
     bindQuickAdd();
@@ -1604,7 +1677,8 @@ ${t.recur ? `<div class="recur-stat">
     check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7"/></svg>',
     plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
     repeat: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M17 2.5l3.5 3.5L17 9.5"/><path d="M20.5 6H8.5A5 5 0 0 0 3.5 11v1"/><path d="M7 21.5L3.5 18 7 14.5"/><path d="M3.5 18h12a5 5 0 0 0 5-5v-1"/></svg>',
-    repeatOff: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M17 2.5l3.5 3.5L17 9.5"/><path d="M20.5 6H8.5A5 5 0 0 0 3.5 11v1"/><path d="M7 21.5L3.5 18 7 14.5"/><path d="M3.5 18h12a5 5 0 0 0 5-5v-1"/><path d="M4 4l16 16" class="r-slash"/></svg>'
+    repeatOff: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M17 2.5l3.5 3.5L17 9.5"/><path d="M20.5 6H8.5A5 5 0 0 0 3.5 11v1"/><path d="M7 21.5L3.5 18 7 14.5"/><path d="M3.5 18h12a5 5 0 0 0 5-5v-1"/><path d="M4 4l16 16" class="r-slash"/></svg>',
+    pencil: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.8 2.8 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>'
   };
 
   init();
