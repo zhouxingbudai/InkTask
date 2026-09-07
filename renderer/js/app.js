@@ -667,11 +667,11 @@ ${t.recur ? `<div class="recur-stat">
         <div class="dp-time">
           <div class="dp-time-row">
             <div class="dp-stepper" data-unit="h">
-              <button data-d="-1" title="减 1 小时">−</button><b>${U.pad2(st.h)}</b><button data-d="1" title="加 1 小时">＋</button>
+              <button data-d="-1" title="减 1 小时">−</button><input class="dp-iv" data-unit="h" value="${U.pad2(st.h)}" inputmode="numeric" maxlength="2" autocomplete="off" title="直接输入小时（0-23）"><button data-d="1" title="加 1 小时">＋</button>
             </div>
             <span class="dp-colon">:</span>
             <div class="dp-stepper" data-unit="min">
-              <button data-d="-1" title="减 5 分钟">−</button><b>${U.pad2(st.min)}</b><button data-d="1" title="加 5 分钟">＋</button>
+              <button data-d="-1" title="减 5 分钟">−</button><input class="dp-iv" data-unit="min" value="${U.pad2(st.min)}" inputmode="numeric" maxlength="2" autocomplete="off" title="直接输入分钟（0-59）"><button data-d="1" title="加 5 分钟">＋</button>
             </div>
           </div>
           <div class="dp-quick-times">
@@ -713,6 +713,50 @@ ${t.recur ? `<div class="recur-stat">
       }
       if (btn.dataset.act === 'clear') { cb(null); closeDuePopover(); return; }
       if (btn.dataset.act === 'ok') { cb(selTime()); closeDuePopover(); return; }
+    });
+
+    /* 时间可直接键入：聚焦全选覆盖，输入实时同步（不重渲染避免打断输入），
+       失焦规范化（补零 / 越界钳制 / 空值回退），回车等价于「确定」 */
+    pop.addEventListener('focusin', (e) => {
+      const iv = e.target.closest('.dp-iv');
+      if (iv) requestAnimationFrame(() => iv.select());
+    });
+
+    pop.addEventListener('input', (e) => {
+      const iv = e.target.closest('.dp-iv');
+      if (!iv) return;
+      const unit = iv.dataset.unit;
+      const max = unit === 'h' ? 23 : 59;
+      const v = parseInt(iv.value.replace(/\D/g, ''), 10);
+      if (Number.isNaN(v)) return; // 清空等中间态：保留内存原值，失焦时回退
+      if (unit === 'h') st.h = Math.min(v, max);
+      else st.min = Math.min(v, max);
+    });
+
+    pop.addEventListener('focusout', (e) => {
+      const iv = e.target.closest('.dp-iv');
+      if (!iv) return;
+      const unit = iv.dataset.unit;
+      const max = unit === 'h' ? 23 : 59;
+      const cur = unit === 'h' ? st.h : st.min;
+      let v = parseInt(iv.value.replace(/\D/g, ''), 10);
+      if (Number.isNaN(v)) v = cur; // 空 / 非法输入回退原值
+      v = Math.max(0, Math.min(v, max));
+      if (unit === 'h') st.h = v; else st.min = v;
+      // 只规范化自身显示，不重渲染整个弹层——焦点切到其他控件时若
+      // 重建 DOM，紧随其后的 click（如选中日期、点确定）会因 target
+      // 被移除而丢失
+      iv.value = U.pad2(v);
+    });
+
+    pop.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter') return;
+      const iv = e.target.closest('.dp-iv');
+      if (!iv) return;
+      e.preventDefault();
+      iv.blur(); // 触发失焦规范化同步
+      cb(selTime());
+      closeDuePopover();
     });
 
     render();
