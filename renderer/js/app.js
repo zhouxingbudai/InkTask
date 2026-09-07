@@ -195,7 +195,8 @@
   }
 
   function clearCompleted() {
-    // 重复任务不清除：它们只是本轮完成，下一周期还要回来
+    // 普通已完成任务直接清除（可撤销）；已完成的重复任务默认保留
+    // （下一周期还要回来），但 toast 上提供「一并清除」选项让用户决定去留
     const removed = tasks().filter((t) => t.completed && !t.recur);
     const keptRec = tasks().filter((t) => t.completed && t.recur);
     if (!removed.length && !keptRec.length) return;
@@ -203,12 +204,28 @@
     persist();
     renderAll();
     if (removed.length) {
-      showToast(`已清除 ${removed.length} 项已完成${keptRec.length ? `（${keptRec.length} 项重复任务保留）` : ''}`, {
+      showToast(`已清除 ${removed.length} 项已完成`, {
         actionLabel: '撤销',
         onAction: () => { state.doc.tasks.push(...removed); persist(); renderAll(); }
       });
-    } else {
-      showToast(`${keptRec.length} 项重复任务保留，到期后自动回到待办`);
+    }
+    if (keptRec.length) {
+      showToast(`${keptRec.length} 项重复任务保留，到期自动回到待办`, {
+        actionLabel: '一并清除',
+        duration: 8000, // 决定去留的选项多留几秒反应时间
+        onAction: () => {
+          // 以点击时的实时状态为准（期间可能手动改过完成状态）
+          const del = tasks().filter((t) => t.completed && t.recur);
+          if (!del.length) return;
+          state.doc.tasks = tasks().filter((t) => !(t.completed && t.recur));
+          persist();
+          renderAll();
+          showToast(`已清除 ${del.length} 项重复任务`, {
+            actionLabel: '撤销',
+            onAction: () => { state.doc.tasks.push(...del); persist(); renderAll(); }
+          });
+        }
+      });
     }
   }
 
