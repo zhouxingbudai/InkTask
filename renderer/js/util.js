@@ -44,14 +44,14 @@
     return String(n).padStart(2, '0');
   }
 
-  /** 任务到期时间的友好标签：今天 (9/7) 18:00 / 明天 (9/8) 09:00 / 后天 (9/9) 18:00 /
-   *  本周三 (9/9) 14:30 / 下周二 (9/15) 09:00 / 上周五 (9/4) 18:00 / 9月30日 */
+  /** 任务到期时间的友好标签：今天 (2026/9/7) 18:00 / 明天 (2026/9/8) 09:00 / 后天 (2026/9/9) 18:00 /
+   *  本周三 (2026/9/9) 14:30 / 下周二 (2026/9/15) 09:00 / 上周五 (2026/9/4) 18:00 / 2026年9月30日 */
   function fmtDueLabel(ts) {
     if (ts == null) return '';
     const d = new Date(ts);
     const now = new Date();
     const hm = `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
-    const md = `${d.getMonth() + 1}/${d.getDate()}`;
+    const md = `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`;
     const days = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
     const sameDay = (a, b) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
     const dayAt = (n) => new Date(now.getFullYear(), now.getMonth(), now.getDate() + n);
@@ -76,8 +76,8 @@
     if (wk === thisWeek + 7 * 86400000) return `下周${dow} (${md}) ${hm}`;
     if (wk === thisWeek - 7 * 86400000) return `上周${dow} (${md}) ${hm}`;
 
-    const y = d.getFullYear() !== now.getFullYear() ? `${d.getFullYear()}年` : '';
-    return `${y}${d.getMonth() + 1}月${d.getDate()}日${d.getHours() === 0 && d.getMinutes() === 0 ? '' : ' ' + hm}`;
+    // 更远的日期：完整年月日
+    return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日${d.getHours() === 0 && d.getMinutes() === 0 ? '' : ' ' + hm}`;
   }
 
   function fmtClock(ts) {
