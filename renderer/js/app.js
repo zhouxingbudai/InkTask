@@ -1356,6 +1356,20 @@ ${t.recur ? `<div class="recur-stat">
     $('#hk-error').classList.add('hidden');
   }
 
+  /** 面板隐藏时收起所有浮层：快捷键/托盘再次呼出回到主界面，而不是残留的设置面板。
+   *  visibilitychange 在 win.hide()（快捷键、点 X、失焦自动隐藏）后触发 document.hidden。 */
+  function resetOverlays() {
+    const lb = $('#lightbox');
+    if (lb && !lb.classList.contains('hidden')) lb.classList.add('hidden');
+    if (!$('#modal-settings').classList.contains('hidden')) closeSettings();
+    closeGroupPopover();
+    closeRecurPopover();
+    closeDuePopover();
+    // 改名进行中隐藏面板：焦点已不可用，强制收尾保存（finish 幂等，重复触发无害）
+    const rename = $('#task-list .task-title-input');
+    if (rename) rename.dispatchEvent(new Event('blur'));
+  }
+
   /** 标题栏显示版本号：多版本共存（托盘旧实例等）时一眼分辨跑的是哪个 */
   function renderBrandVer() {
     const el = $('#brand-ver');
@@ -1634,7 +1648,9 @@ ${t.recur ? `<div class="recur-stat">
     // 周期复活巡检：已完成重复任务到下一周期所在日 0 点自动回到待办
     setInterval(refreshRecurring, 30000);
     document.addEventListener('visibilitychange', () => {
-      if (!document.hidden) refreshRecurring();
+      // 隐藏（win.hide / 最小化）→ 收起设置面板等浮层，呼出时回到主界面
+      if (document.hidden) resetOverlays();
+      else refreshRecurring();
     });
     window.addEventListener('focus', () => refreshRecurring());
     if (Storage.isElectron && window.inktask) {
