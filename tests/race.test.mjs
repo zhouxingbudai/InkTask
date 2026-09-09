@@ -186,3 +186,35 @@ test('等时戳广播视为陈旧：不采纳、不破坏当前状态', async ()
     app.close();
   }
 });
+
+test('删除分组带撤销：恢复分组定义与任务归属', async () => {
+  const app = await bootApp(cleanDoc());
+  try {
+    // 打开分组管理弹层并点击删除
+    app.document.querySelector('.g-chip[data-g="__manage"]').dispatchEvent(
+      new app.window.MouseEvent('click', { bubbles: true })
+    );
+    await sleep(30);
+    const delBtn = app.document.querySelector('.g-man-del[data-del="gX"]');
+    assert.ok(delBtn, '分组管理弹层应出现删除按钮');
+    delBtn.dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
+    await sleep(60);
+    assert.ok(!app.document.querySelector('.g-chip[data-g="gX"]'), '删除后分组条不应再有该分组');
+    assert.ok(app.document.querySelector('.task[data-id="t1"]'), '任务本体保留');
+
+    // 点击 toast 上的「撤销」
+    const undoBtn = app.document.querySelector('.toast-act');
+    assert.ok(undoBtn, '删除分组应出现带撤销按钮的 toast');
+    undoBtn.dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
+    await sleep(60);
+    assert.ok(app.document.querySelector('.g-chip[data-g="gX"]'), '撤销后分组定义恢复');
+
+    await sleep(500); // 等防抖落盘
+    const saved = app.saved[app.saved.length - 1];
+    const t1 = saved.tasks.find((t) => t.id === 't1');
+    assert.equal(t1.groupId, 'gX', '撤销后任务归属恢复（连分组一起记录）');
+    assert.ok(saved.groups.some((g) => g.id === 'gX'), '撤销后分组定义进入保存载荷');
+  } finally {
+    app.close();
+  }
+});

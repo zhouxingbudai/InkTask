@@ -59,17 +59,27 @@
     persist();
   }
 
-  /** 删除分组：任务移入未分组（不删任务）；若正浏览该分组则回到全部 */
+  /** 删除分组：任务移入未分组（不删任务），带撤销——恢复分组定义与任务归属 */
   function deleteGroup(id) {
     const idx = groups().findIndex((g) => g.id === id);
     if (idx < 0) return;
     const [g] = groups().splice(idx, 1);
+    const affected = tasks().filter((t) => t.groupId === id); // 撤销时恢复归属
     tasks().forEach((t) => { if (t.groupId === id) t.groupId = null; });
     if (state.activeGroup === id) state.activeGroup = 'all';
     if (state.quick.groupOverride === id) state.quick.groupOverride = null;
     persist();
     renderAll();
-    showToast(`已删除分组「${U.truncate(g.name, 10)}」，其任务已移入未分组`);
+    showToast(`已删除分组「${U.truncate(g.name, 10)}」，其任务已移入未分组`, {
+      actionLabel: '撤销',
+      onAction: () => {
+        groups().push(g);
+        // 只恢复此刻仍处于未分组的任务：撤销窗口内被用户改去别的分组的归属不动
+        for (const t of affected) if (t.groupId == null) t.groupId = g.id;
+        persist();
+        renderAll();
+      }
+    });
   }
 
   /**
