@@ -881,7 +881,15 @@ ${t.recur ? `<div class="recur-stat">
     const pr = pop.getBoundingClientRect();
     const left = Math.max(8, Math.min(r.left, window.innerWidth - pr.width - 8));
     pop.style.left = `${left}px`;
-    pop.style.top = `${r.bottom + 6}px`;
+    // 下方放不下（如列表底部的任务展开编辑到期）→ 向上翻；
+    // 上方也放不下（极矮窗口）→ 贴底对齐。保证弹层始终完整可见，不被窗口边缘裁切。
+    const below = r.bottom + 6;
+    if (below + pr.height <= window.innerHeight - 8) {
+      pop.style.top = `${below}px`;
+    } else {
+      const above = r.top - pr.height - 6;
+      pop.style.top = above >= 8 ? `${above}px` : `${Math.max(8, window.innerHeight - pr.height - 8)}px`;
+    }
   }
 
   function closeDuePopover() {

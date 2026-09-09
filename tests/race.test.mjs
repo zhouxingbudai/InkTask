@@ -404,6 +404,60 @@ test('分组条芯片双击重命名：就地改名并落盘', async () => {
   }
 });
 
+test('到期弹层智能翻转：底部任务向上翻，完整可见不被裁切', async () => {
+  const app = await bootApp(cleanDoc());
+  const proto = app.window.HTMLElement.prototype;
+  const orig = proto.getBoundingClientRect;
+  try {
+    // 模拟：窗口高 768，到期按钮贴近底部（y=700~720），弹层高 380
+    proto.getBoundingClientRect = function () {
+      if (this.classList && this.classList.contains('due-pop')) {
+        return { left: 10, top: 0, right: 250, bottom: 380, width: 240, height: 380, x: 10, y: 0 };
+      }
+      if (typeof this.closest === 'function' && this.closest('[data-act="due-edit"]')) {
+        return { left: 20, top: 700, right: 80, bottom: 720, width: 60, height: 20, x: 20, y: 700 };
+      }
+      return { left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0, x: 0, y: 0 };
+    };
+    app.document.querySelector('.task[data-id="t1"] .task-head').dispatchEvent(
+      new app.window.MouseEvent('click', { bubbles: true })
+    );
+    await sleep(40);
+    app.document.querySelector('.task[data-id="t1"] [data-act="due-edit"]').dispatchEvent(
+      new app.window.MouseEvent('click', { bubbles: true })
+    );
+    await sleep(60);
+    const pop = app.document.querySelector('.due-pop');
+    assert.ok(pop, '到期弹层已打开');
+    const top = parseInt(pop.style.top, 10);
+    assert.ok(top + 380 <= 700, `贴近底部的锚点应向上翻（top=${top}，弹层底边不应超过按钮顶部）`);
+    assert.ok(top >= 8, '上翻不越过窗口顶部');
+
+    // 常规场景：按钮在窗口上部（y=100~120）→ 保持向下展开
+    proto.getBoundingClientRect = function () {
+      if (this.classList && this.classList.contains('due-pop')) {
+        return { left: 10, top: 0, right: 250, bottom: 380, width: 240, height: 380, x: 10, y: 0 };
+      }
+      if (typeof this.closest === 'function' && this.closest('[data-act="due-edit"]')) {
+        return { left: 20, top: 100, right: 80, bottom: 120, width: 60, height: 20, x: 20, y: 100 };
+      }
+      return { left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0, x: 0, y: 0 };
+    };
+    app.document.body.dispatchEvent(new app.window.MouseEvent('mousedown', { bubbles: true }));
+    await sleep(30);
+    app.document.querySelector('.task[data-id="t1"] [data-act="due-edit"]').dispatchEvent(
+      new app.window.MouseEvent('click', { bubbles: true })
+    );
+    await sleep(60);
+    const pop2 = app.document.querySelector('.due-pop');
+    assert.ok(pop2, '重开后弹层存在');
+    assert.equal(parseInt(pop2.style.top, 10), 126, '上方空间充足时保持向下展开（按钮底 120 + 6）');
+  } finally {
+    proto.getBoundingClientRect = orig;
+    app.close();
+  }
+});
+
 test('芯片重命名 Esc 取消：不落盘不丢原名', async () => {
   const app = await bootApp(cleanDoc());
   try {
