@@ -310,7 +310,7 @@
     let html = `<button class="g-chip${state.activeGroup === 'all' ? ' active' : ''}" data-g="all">
       <span class="g-name">全部</span><span class="g-count">${openAll}</span></button>`;
     html += gs.map((g) => `
-      <button class="g-chip${state.activeGroup === g.id ? ' active' : ''}" data-g="${g.id}" style="--g-color:${g.color}">
+      <button class="g-chip${state.activeGroup === g.id ? ' active' : ''}" data-g="${g.id}" style="--g-color:${g.color}" title="点击筛选 · 双击重命名">
         <span class="g-dot"></span><span class="g-name">${esc(g.name)}</span><span class="g-count">${groupCount(g.id)}</span>
       </button>`).join('');
     html += `<button class="g-chip add" data-g="__manage" title="管理分组">＋</button>`;
@@ -1091,14 +1091,81 @@ ${t.recur ? `<div class="recur-stat">
   }
 
   function bindGroupsBar() {
+    // 手工双击检测：芯片点击会整条重渲染，系统 dblclick 的目标节点被替换后不再触发
+    let lastChipClick = null; // { gid, x, y, t }
+    const CHIP_DBL_MS = 480;
+
     $('#groups-bar').addEventListener('click', (e) => {
+      const nowMs = Date.now();
+
+      // (0) 行内改名输入框内部的点击（定位光标 / 框选）：放行，不当成切视图
+      if (e.target.closest('.g-name-input')) return;
+
+      // (0.5) 正在改名时点击输入框之外：先收尾保存再处理本次点击
+      //       （Chromium 移除聚焦节点不触发 blur，需手动兜底，否则输入静默丢失）
+      const activeChipRename = $('#groups-bar .g-name-input');
+      if (activeChipRename) activeChipRename.dispatchEvent(new Event('blur'));
+
       const chip = e.target.closest('.g-chip');
-      if (!chip) return;
-      if (chip.dataset.g === '__manage') { toggleGroupManager(chip); return; }
-      state.activeGroup = chip.dataset.g || 'all';
+      if (!chip) { lastChipClick = null; return; }
+
+      // (A) 手工双击判定：同一分组芯片 + <480ms → 行内重命名（不重复切视图）。
+      //     芯片点击会整条重渲染（节点被替换），系统 dblclick 不可靠，自行检测；
+      //     与任务标题「双击重命名」的既有交互保持一致。
+      const gid = chip.dataset.g;
+      const dbl = lastChipClick
+        && lastChipClick.gid === gid
+        && gid !== 'all' && gid !== '__manage'
+        && nowMs - lastChipClick.t <= CHIP_DBL_MS
+        && Math.hypot(e.clientX - lastChipClick.x, e.clientY - lastChipClick.y) <= 16;
+      lastChipClick = null;
+      if (dbl) { e.preventDefault(); beginChipRename(gid); return; }
+
+      // (B) 记录本击，供 (A) 判定双击
+      lastChipClick = { gid, x: e.clientX, y: e.clientY, t: nowMs };
+
+      if (gid === '__manage') { toggleGroupManager(chip); return; }
+      state.activeGroup = gid || 'all';
       state.quick.groupOverride = null; // 回到跟随视图
       renderGroups();
       renderList();
+    });
+  }
+
+  /** 分组条芯片行内重命名：双击芯片触发（Enter/失焦保存，Esc 取消） */
+  function beginChipRename(gid) {
+    const g = findGroup(gid);
+    const chip = $(`#groups-bar .g-chip[data-g="${CSS.escape(gid)}"]`);
+    const nameEl = chip && chip.querySelector('.g-name');
+    if (!g || !chip || !nameEl || chip.querySelector('.g-name-input')) return;
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.value = g.name;
+    input.maxLength = 16;
+    input.className = 'g-name-input';
+    nameEl.replaceWith(input);
+    chip.classList.add('renaming');
+    input.focus();
+    input.select();
+    let done = false; // Enter → blur 可能连续触发 finish，只执行一次
+    const finish = (commit) => {
+      if (done) return;
+      done = true;
+      input.remove();
+      chip.classList.remove('renaming');
+      const v = input.value.trim();
+      if (commit && v && v !== g.name) {
+        renameGroup(gid, v); // 内部 persist；改名后所有引用处一起刷新
+        renderAll();
+        showToast('已重命名', { duration: 1800 });
+      } else {
+        renderGroups(); // 取消 / 未变化：还原芯片
+      }
+    };
+    input.addEventListener('blur', () => finish(true));
+    input.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter') { ev.preventDefault(); finish(true); }
+      if (ev.key === 'Escape') { ev.preventDefault(); finish(false); }
     });
   }
 

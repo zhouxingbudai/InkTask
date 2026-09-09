@@ -628,6 +628,24 @@ button {
 
 .g-name { max-width: 96px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* 分组芯片行内重命名（双击触发） */
+.g-chip.renaming { border-color: var(--accent-glow); background: var(--surface-2); }
+
+.g-name-input {
+  width: 88px;
+  min-width: 0;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  border: 1px solid var(--accent-glow);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 18px;
+  text-align: center;
+  outline: none;
+}
+
 .g-count {
   min-width: 17px;
   height: 17px;

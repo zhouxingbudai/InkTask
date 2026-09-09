@@ -277,6 +277,56 @@ test('已完成任务可展开编辑：详情编辑器与优先级修改均生�
   }
 });
 
+test('分组条芯片双击重命名：就地改名并落盘', async () => {
+  const app = await bootApp(cleanDoc());
+  try {
+    // 第一次点击：切换视图（芯片整条重渲染，节点被替换）
+    app.document.querySelector('.g-chip[data-g="gX"]').dispatchEvent(
+      new app.window.MouseEvent('click', { bubbles: true })
+    );
+    await sleep(10);
+    // 第二次点击同一芯片（<480ms）：触发行内重命名
+    app.document.querySelector('.g-chip[data-g="gX"]').dispatchEvent(
+      new app.window.MouseEvent('click', { bubbles: true })
+    );
+    await sleep(30);
+    const input = app.document.querySelector('.g-name-input');
+    assert.ok(input, '双击芯片应进入行内重命名');
+    assert.equal(input.value, '工作', '输入框预填当前分组名');
+    input.value = '日常事务';
+    input.dispatchEvent(new app.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    await sleep(500);
+    const saved = app.saved[app.saved.length - 1];
+    assert.equal(saved.groups.find((g) => g.id === 'gX').name, '日常事务', '改名应落盘');
+    assert.equal(app.document.querySelector('.g-chip[data-g="gX"] .g-name').textContent, '日常事务', '芯片显示新名');
+  } finally {
+    app.close();
+  }
+});
+
+test('芯片重命名 Esc 取消：不落盘不丢原名', async () => {
+  const app = await bootApp(cleanDoc());
+  try {
+    app.document.querySelector('.g-chip[data-g="gX"]').dispatchEvent(
+      new app.window.MouseEvent('click', { bubbles: true })
+    );
+    await sleep(10);
+    app.document.querySelector('.g-chip[data-g="gX"]').dispatchEvent(
+      new app.window.MouseEvent('click', { bubbles: true })
+    );
+    await sleep(30);
+    const input = app.document.querySelector('.g-name-input');
+    assert.ok(input, '进入行内重命名');
+    input.value = '改了一半的名字';
+    input.dispatchEvent(new app.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await sleep(60);
+    assert.ok(!app.document.querySelector('.g-name-input'), '取消后退出编辑态');
+    assert.equal(app.document.querySelector('.g-chip[data-g="gX"] .g-name').textContent, '工作', 'Esc 后原名保留');
+  } finally {
+    app.close();
+  }
+});
+
 test('完成任务时保持展开：勾选后无需重新点开即可补写详情', async () => {
   const app = await bootApp(cleanDoc());
   try {

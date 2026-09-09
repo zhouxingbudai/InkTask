@@ -1,7 +1,7 @@
 {
   "name": "inktask",
   "productName": "墨办 InkTask",
-  "version": "1.6.0",
+  "version": "1.6.1",
   "description": "深色系 Windows 本地待办：紧急度自动排序 · 重复任务打卡 · 剪贴板图片内嵌详情 · 全局快捷键置顶/隐藏",
   "main": "main/main.js",
   "author": "InkTask",
