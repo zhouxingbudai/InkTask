@@ -841,6 +841,20 @@ button {
 
 .g-man-row .g-opt-count { margin-left: 0; }
 
+.g-man-ren {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-3);
+  transition: all 0.12s;
+}
+
+.g-man-ren svg { width: 13px; height: 13px; }
+.g-man-ren:hover { color: var(--accent); background: rgba(232, 179, 75, 0.12); }
+
 .g-man-del {
   width: 24px;
   height: 24px;

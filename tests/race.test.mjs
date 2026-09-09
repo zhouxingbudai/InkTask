@@ -218,3 +218,81 @@ test('删除分组带撤销：恢复分组定义与任务归属', async () => {
     app.close();
   }
 });
+
+test('孤儿恢复的一键重命名：toast 直达管理器，笔形按钮改回原名', async () => {
+  const app = await bootApp(legacyDoc());
+  try {
+    await sleep(30);
+    const goBtn = app.document.querySelector('.toast-act');
+    assert.ok(goBtn, '孤儿恢复 toast 应带「去重命名」直达按钮');
+    assert.match(goBtn.textContent, /去重命名/, '按钮文案明确引导');
+    goBtn.dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
+    await sleep(30);
+    assert.ok(app.document.querySelector('.g-pop.manage'), '点击后直接打开分组管理器');
+
+    // 笔形重命名按钮（不再依赖双击这种隐蔽交互）
+    const renBtn = app.document.querySelector('.g-man-ren[data-ren="gX"]');
+    assert.ok(renBtn, '每行应有显式重命名按钮');
+    renBtn.dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
+    await sleep(30);
+    const input = app.document.querySelector('.g-man-rename');
+    assert.ok(input, '点击笔形按钮进入行内重命名');
+    input.value = '工作';
+    input.dispatchEvent(new app.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    await sleep(500); // 等防抖落盘
+    const saved = app.saved[app.saved.length - 1];
+    assert.equal(saved.groups.find((g) => g.id === 'gX').name, '工作', '占位名改回「工作」并落盘');
+  } finally {
+    app.close();
+  }
+});
+
+test('已完成任务可展开编辑：详情编辑器与优先级修改均生效', async () => {
+  const doc = cleanDoc();
+  doc.tasks[0].completed = true;
+  doc.tasks[0].completedAt = 2000;
+  const app = await bootApp(doc);
+  try {
+    // 点击已完成卡片头部 → 展开
+    const doneCard = app.document.querySelector('.task.done[data-id="t1"]');
+    assert.ok(doneCard, '已完成任务应渲染在已完成区');
+    doneCard.querySelector('.task-head').dispatchEvent(
+      new app.window.MouseEvent('click', { bubbles: true })
+    );
+    await sleep(60);
+    const openCard = app.document.querySelector('.task.done[data-id="t1"]');
+    assert.ok(openCard.classList.contains('open'), '已完成任务展开');
+    assert.ok(openCard.querySelector('.ink-editor-body'), '展开后挂载详情编辑器');
+    assert.ok(openCard.querySelector('[data-act="urg-selector"]'), '展开后有优先级选择器');
+
+    // 修改已完成任务的优先级 → 落盘生效（完成后仍可编辑）
+    openCard.querySelector('.urg-opt[data-urg="2"]').dispatchEvent(
+      new app.window.MouseEvent('click', { bubbles: true })
+    );
+    await sleep(500);
+    const saved = app.saved[app.saved.length - 1];
+    assert.equal(saved.tasks.find((t) => t.id === 't1').urgency, 2, '已完成任务的编辑应落盘');
+  } finally {
+    app.close();
+  }
+});
+
+test('完成任务时保持展开：勾选后无需重新点开即可补写详情', async () => {
+  const app = await bootApp(cleanDoc());
+  try {
+    // 展开待办任务 → 点完成 → 应在已完成区保持展开
+    const card = app.document.querySelector('.task[data-id="t1"]');
+    card.querySelector('.task-head').dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
+    await sleep(40);
+    app.document.querySelector('.task[data-id="t1"] [data-act="toggle"]').dispatchEvent(
+      new app.window.MouseEvent('click', { bubbles: true })
+    );
+    await sleep(60);
+    const doneCard = app.document.querySelector('.task.done[data-id="t1"]');
+    assert.ok(doneCard, '任务完成后移入已完成区');
+    assert.ok(doneCard.classList.contains('open'), '完成时保持展开状态');
+    assert.ok(doneCard.querySelector('.ink-editor-body'), '完成后编辑器继续在线可编辑');
+  } finally {
+    app.close();
+  }
+});

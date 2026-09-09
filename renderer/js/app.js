@@ -104,9 +104,18 @@
       });
     }
     persist();
+    // 旧版只把任务上的分组归属落盘、分组定义（名字/颜色）从未保存，名字物理上无法恢复；
+    // 一键直达重命名，把「分组N」改回原名（如「工作」）即完成恢复
     showToast(
-      `检测到 ${orphans.size} 个分组缺少定义（旧版未保存分组数据），已按任务归属重建，改回原名即可`,
-      { duration: 8000 }
+      `检测到 ${orphans.size} 个分组缺少定义（旧版未保存分组数据），已按任务归属重建，点按钮改回原名`,
+      {
+        duration: 12000,
+        actionLabel: '去重命名',
+        onAction: () => {
+          const anchor = $('#groups-bar .g-chip.add');
+          if (anchor) toggleGroupManager(anchor);
+        }
+      }
     );
   }
 
@@ -335,8 +344,8 @@
         || U.stripHtml(t.detailHtml).toLowerCase().includes(f));
     const act = active.filter(match);
 
-    // 展开的任务被删/被筛掉时收起
-    if (state.expandedId && !act.find((t) => t.id === state.expandedId)) {
+    // 展开的任务被删时收起（待办/已完成均可展开编辑，任务不存在才收起）
+    if (state.expandedId && !findTask(state.expandedId)) {
       destroyEditor(state.expandedId);
       state.expandedId = null;
     }
@@ -347,10 +356,11 @@
       listEl.innerHTML = emptyHtml(sub);
     } else {
       listEl.innerHTML = act.map(cardHtml).join('');
-      if (state.expandedId) mountEditor(state.expandedId, { focus: false });
     }
 
     renderDoneSection(done.filter(match));
+    // 待办或已完成中的展开卡片都挂上详情编辑器（完成后可继续编辑）
+    if (state.expandedId) mountEditor(state.expandedId, { focus: false });
   }
 
   function emptyHtml(subText) {
@@ -446,12 +456,15 @@ ${t.recur ? `<div class="recur-stat">
     if (!show) return;
     const wrap = document.createElement('div');
     wrap.className = 'done-section';
-    wrap.innerHTML = done.map((t) => `
-<article class="task done" data-id="${t.id}">
+    wrap.innerHTML = done.map((t) => {
+      const open = t.id === state.expandedId; // 已完成同样可展开编辑详情/分组/到期
+      const nImg = imgCountOf(t);
+      return `
+<article class="task done${open ? ' open' : ''}" data-id="${t.id}">
   <span class="rail"></span>
   <button class="check checked" data-act="toggle" title="${t.recur ? '取消完成（重复任务）' : '取消完成'}"></button>
   <div class="task-main">
-    <div class="task-head">
+    <div class="task-head" data-act="expand" title="点击展开，可继续编辑详情">
       <div class="title-wrap">
         <div class="task-title-row">
           <h3 class="task-title" title="双击重命名，或点笔形按钮">${esc(t.title)}</h3>
@@ -460,11 +473,15 @@ ${t.recur ? `<div class="recur-stat">
         <div class="task-meta">
           ${t.dueAt != null ? `<span class="due-chip">${esc(U.fmtDueLabel(t.dueAt))}</span>` : ''}
           ${t.recur ? `<span class="recur-chip" title="下一周期自动回到待办">${ICON.repeat}<i>下次 ${esc(U.fmtDueLabel(t.dueAt))}</i></span>` : ''}
+          ${!open && nImg > 0 ? `<span class="img-chip">${ICON.image}${nImg}</span>` : ''}
         </div>
       </div>
+      <div class="task-side"><span class="chev">${ICON.chevron}</span></div>
     </div>
+    <div class="task-detail"><div class="task-detail-inner">${open ? detailHtml(t) : ''}</div></div>
   </div>
-</article>`).join('');
+</article>`;
+    }).join('');
     listEl.appendChild(wrap);
   }
 
@@ -998,30 +1015,17 @@ ${t.recur ? `<div class="recur-stat">
             <span class="g-opt-dot"></span>
             <span class="g-man-name" title="双击重命名">${esc(g.name)}</span>
             <span class="g-opt-count">${groupCount(g.id)}</span>
+            <button class="g-man-ren" data-ren="${g.id}" title="重命名" aria-label="重命名">${ICON.pencil}</button>
             <button class="g-man-del" data-del="${g.id}" title="删除分组（任务移入未分组）">${ICON.trash}</button>
           </div>`).join('')}
         ${groups().length ? '</div>' : ''}`;
     }
 
-    pop.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const addBtn = e.target.closest('[data-g-add]');
-      if (addBtn) {
-        const input = $('[data-g-new]', pop);
-        if (input && input.value.trim()) { makeGroup(input.value.trim()); renderAll(); render(); }
-        return;
-      }
-      const del = e.target.closest('[data-del]');
-      if (del) { deleteGroup(del.dataset.del); render(); return; }
-    });
-
-    pop.addEventListener('dblclick', (e) => {
-      const nameEl = e.target.closest('.g-man-name');
-      if (!nameEl) return;
-      const row = nameEl.closest('.g-man-row');
-      const gid = row.dataset.gid;
+    /** 行内重命名（笔形按钮或双击触发） */
+    function beginGroupRename(row, gid) {
       const g = findGroup(gid);
-      if (!g) return;
+      const nameEl = row && row.querySelector('.g-man-name');
+      if (!g || !nameEl || row.querySelector('.g-man-rename')) return;
       const input = document.createElement('input');
       input.type = 'text';
       input.value = g.name;
@@ -1040,6 +1044,27 @@ ${t.recur ? `<div class="recur-stat">
         if (ev.key === 'Enter') { ev.preventDefault(); commit(); }
         if (ev.key === 'Escape') render();
       });
+    }
+
+    pop.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const addBtn = e.target.closest('[data-g-add]');
+      if (addBtn) {
+        const input = $('[data-g-new]', pop);
+        if (input && input.value.trim()) { makeGroup(input.value.trim()); renderAll(); render(); }
+        return;
+      }
+      const ren = e.target.closest('[data-ren]');
+      if (ren) { beginGroupRename(ren.closest('.g-man-row'), ren.dataset.ren); return; }
+      const del = e.target.closest('[data-del]');
+      if (del) { deleteGroup(del.dataset.del); render(); return; }
+    });
+
+    pop.addEventListener('dblclick', (e) => {
+      const nameEl = e.target.closest('.g-man-name');
+      if (!nameEl) return;
+      const row = nameEl.closest('.g-man-row');
+      beginGroupRename(row, row.dataset.gid);
     });
 
     pop.addEventListener('keydown', (e) => {
