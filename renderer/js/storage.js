@@ -23,10 +23,13 @@
       const raw = global.localStorage.getItem(WEB_KEY);
       if (raw) {
         const doc = JSON.parse(raw);
-        if (doc && Array.isArray(doc.tasks)) return doc;
+        if (doc && Array.isArray(doc.tasks)) {
+          if (!Array.isArray(doc.groups)) doc.groups = [];
+          return doc;
+        }
       }
     } catch (_) { /* ignore */ }
-    return { meta: { version: 1 }, tasks: [] };
+    return { meta: { version: 1 }, tasks: [], groups: [] };
   }
 
   function webLoadSettings() {

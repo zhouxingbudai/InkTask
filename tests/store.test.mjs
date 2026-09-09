@@ -32,6 +32,49 @@ test('saveTasks → 重新 init 后数据一致（落盘往返）', () => {
   assert.deepEqual(again.getTasks().tasks, tasks);
 });
 
+/* ---------------- 分组持久化 ---------------- */
+
+test('saveTasks 带分组 → 重新 init 后分组一致（落盘往返）', () => {
+  const dir = tmpDir();
+  const store = new Store(dir).init();
+  const tasks = [{ id: 'a', title: '签退', groupId: 'g1' }];
+  const groups = [{ id: 'g1', name: '工作', color: '#e8b34b', createdAt: 1 }];
+  store.saveTasks(tasks, { version: 1 }, groups);
+  const again = new Store(dir).init();
+  assert.deepEqual(again.getTasks().groups, groups);
+  assert.equal(again.getTasks().tasks[0].groupId, 'g1');
+});
+
+test('旧版数据没有 groups 字段 → init 后补齐为空数组', () => {
+  const dir = tmpDir();
+  fs.writeFileSync(path.join(dir, 'tasks.json'), JSON.stringify({
+    meta: { version: 1 },
+    tasks: [{ id: 'a', title: 'x', groupId: 'gone' }]
+  }), 'utf8');
+  const store = new Store(dir).init();
+  assert.deepEqual(store.getTasks().groups, []);
+});
+
+test('saveTasks 未传 groups 时保留内存中的分组（防调用点遗漏清空）', () => {
+  const dir = tmpDir();
+  const store = new Store(dir).init();
+  store.saveTasks([{ id: 'a' }], { version: 1 }, [{ id: 'g1', name: '工作' }]);
+  store.saveTasks([{ id: 'a' }, { id: 'b' }], { version: 1 }); // 忘传 groups
+  assert.deepEqual(store.getTasks().groups, [{ id: 'g1', name: '工作' }]);
+  const again = new Store(dir).init();
+  assert.equal(again.getTasks().groups.length, 1);
+});
+
+test('显式传空数组可以清空分组（删除最后一个分组后落盘）', () => {
+  const dir = tmpDir();
+  const store = new Store(dir).init();
+  store.saveTasks([{ id: 'a' }], { version: 1 }, [{ id: 'g1', name: '临时' }]);
+  store.saveTasks([{ id: 'a', groupId: null }], { version: 1 }, []);
+  assert.deepEqual(store.getTasks().groups, []);
+  const again = new Store(dir).init();
+  assert.deepEqual(again.getTasks().groups, []);
+});
+
 test('saveSettings 合并新增默认键，保留用户旧值', () => {
   const dir = tmpDir();
   const store = new Store(dir).init();

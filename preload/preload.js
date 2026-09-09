@@ -5,7 +5,7 @@
  */
 const { contextBridge, ipcRenderer } = require('electron');
 
-const ALLOWED_CHANNELS = ['pin-changed', 'tasks-changed', 'action', 'hotkey-errors'];
+const ALLOWED_CHANNELS = ['pin-changed', 'tasks-changed', 'tasks-patch', 'action', 'hotkey-errors'];
 
 contextBridge.exposeInMainWorld('inktask', {
   isElectron: true,

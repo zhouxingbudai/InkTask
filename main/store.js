@@ -48,8 +48,10 @@ class Store {
 
   init() {
     fs.mkdirSync(path.join(this.dir, IMAGES_DIR), { recursive: true });
-    this._tasks = this._load(TASKS_FILE, { meta: { version: 1 }, tasks: [] }, isValidTasksDoc);
+    this._tasks = this._load(TASKS_FILE, { meta: { version: 1 }, tasks: [], groups: [] }, isValidTasksDoc);
     this._tasks.tasks = (this._tasks.tasks || []).filter((t) => t && typeof t === 'object' && t.id);
+    // 旧版数据没有 groups 字段；读入后统一补齐，保证内存结构完整
+    if (!Array.isArray(this._tasks.groups)) this._tasks.groups = [];
     if (!this._tasks.meta || typeof this._tasks.meta !== 'object') this._tasks.meta = { version: 1 };
     this._settings = this._load(SETTINGS_FILE, DEFAULT_SETTINGS, isValidSettings);
     this._settings = this._mergeSettings(this._settings);
@@ -100,8 +102,18 @@ class Store {
     return this._tasks;
   }
 
-  saveTasks(tasks, meta) {
-    this._tasks = { meta: meta || { version: 1 }, tasks };
+  /**
+   * 保存任务文档。
+   * @param {Array}    tasks  任务数组
+   * @param {object}   meta   元信息
+   * @param {Array}    [groups] 分组定义；缺省时保留内存中的现有分组，
+   *                           避免遗漏传参的调用点把分组意外清空
+   */
+  saveTasks(tasks, meta, groups) {
+    const keep = Array.isArray(groups)
+      ? groups
+      : (Array.isArray(this._tasks.groups) ? this._tasks.groups : []);
+    this._tasks = { meta: meta || { version: 1 }, tasks: tasks || [], groups: keep };
     this._atomicWrite(TASKS_FILE, this._tasks);
   }
 

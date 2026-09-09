@@ -461,7 +461,7 @@ function registerIpc() {
   ipcMain.handle('tasks:get', () => store.getTasks());
 
   ipcMain.handle('tasks:save', (_e, payload) => {
-    store.saveTasks(payload.tasks, payload.meta);
+    store.saveTasks(payload.tasks, payload.meta, payload.groups);
     updateTrayStats();
     return { ok: true };
   });
@@ -511,6 +511,7 @@ function registerIpc() {
       const backup = {
         meta: { app: 'inktask', version: 1, exportedAt: Date.now() },
         tasks: doc.tasks,
+        groups: Array.isArray(doc.groups) ? doc.groups : [],
         images
       };
       const stamp = new Date().toISOString().slice(0, 10);
@@ -575,8 +576,14 @@ function registerIpc() {
         }
       }
       const merged = [...map.values()];
-      store.saveTasks(merged, doc.meta);
+      // 分组合并：按 id 去重；备份中存在的定义（本地没有或来自旧设备）直接采用
+      const gmap = new Map((doc.groups || []).map((g) => [g.id, g]));
+      for (const g of data.groups || []) {
+        if (g && g.id) gmap.set(g.id, g);
+      }
+      store.saveTasks(merged, { ...doc.meta, updatedAt: Date.now() }, [...gmap.values()]);
       updateTrayStats();
+      // updatedAt 提升：确保渲染层的版本守卫把导入结果当作新数据采纳
       sendToRenderer('tasks-changed', store.getTasks());
       return { ok: true, added, updated, imagesRestored };
     } finally {
@@ -617,23 +624,25 @@ function checkDue() {
   if (!store.getSettings().notifyDue) return;
   const doc = store.getTasks();
   const now = Date.now();
-  let dirty = false;
+  const changed = []; // [{ id, notifiedDue }] 仅本次发生翻转的标志
   for (const t of doc.tasks) {
     if (!t.dueAt) continue;
     const overdue = !t.completed && t.dueAt <= now;
     if (overdue && !t.notifiedDue) {
       t.notifiedDue = true;
-      dirty = true;
+      changed.push({ id: t.id, notifiedDue: true });
       notifyDue(t);
     } else if (!overdue && t.notifiedDue) {
       // 到期时间被改到未来：允许下次再次提醒
       t.notifiedDue = false;
-      dirty = true;
+      changed.push({ id: t.id, notifiedDue: false });
     }
   }
-  if (dirty) {
-    store.saveTasks(doc.tasks, doc.meta);
-    sendToRenderer('tasks-changed', store.getTasks());
+  if (changed.length) {
+    store.saveTasks(doc.tasks, doc.meta, doc.groups);
+    // 不再全量广播 tasks-changed——旧数据会冲掉渲染层 400ms 防抖窗口内
+    // 未落盘的编辑（分组勾选/改名等）。只发补丁让渲染层原位改 notifiedDue。
+    sendToRenderer('tasks-patch', { notifiedDue: changed });
   }
 }
 
