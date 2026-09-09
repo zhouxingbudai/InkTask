@@ -59,27 +59,50 @@
     persist();
   }
 
-  /** 删除分组：任务移入未分组（不删任务），带撤销——恢复分组定义与任务归属 */
-  function deleteGroup(id) {
+  /**
+   * 删除分组（是否连任务一起删由确认弹层选择）。
+   * @param {string} id   分组 id
+   * @param {object} [opts]
+   * @param {boolean} [opts.withTasks=false] true = 连同分组下任务一起删除
+   * 两种删除均带撤销：恢复分组定义，并归位仍处于未分组的任务 / 被删任务。
+   */
+  function deleteGroup(id, opts) {
     const idx = groups().findIndex((g) => g.id === id);
     if (idx < 0) return;
+    const { withTasks = false } = opts || {};
     const [g] = groups().splice(idx, 1);
     const affected = tasks().filter((t) => t.groupId === id); // 撤销时恢复归属
-    tasks().forEach((t) => { if (t.groupId === id) t.groupId = null; });
+    const removedTasks = withTasks
+      ? tasks().filter((t) => t.groupId === id)
+      : [];
+    if (removedTasks.length) {
+      const remove = new Set(removedTasks.map((t) => t.id));
+      for (let i = tasks().length - 1; i >= 0; i--) {
+        if (remove.has(tasks()[i].id)) tasks().splice(i, 1);
+      }
+    } else {
+      tasks().forEach((t) => { if (t.groupId === id) t.groupId = null; }); // 不删任务 → 移入未分组
+    }
     if (state.activeGroup === id) state.activeGroup = 'all';
     if (state.quick.groupOverride === id) state.quick.groupOverride = null;
     persist();
     renderAll();
-    showToast(`已删除分组「${U.truncate(g.name, 10)}」，其任务已移入未分组`, {
-      actionLabel: '撤销',
-      onAction: () => {
-        groups().push(g);
-        // 只恢复此刻仍处于未分组的任务：撤销窗口内被用户改去别的分组的归属不动
-        for (const t of affected) if (t.groupId == null) t.groupId = g.id;
-        persist();
-        renderAll();
+    showToast(
+      withTasks
+        ? `已删除分组「${U.truncate(g.name, 10)}」及其 ${removedTasks.length} 个任务`
+        : `已删除分组「${U.truncate(g.name, 10)}」，其任务已移入未分组`,
+      {
+        actionLabel: '撤销',
+        onAction: () => {
+          groups().push(g);
+          for (const t of removedTasks) tasks().push(t);
+          // 只恢复此刻仍处于未分组的任务：撤销窗口内被用户改去别的分组的归属不动
+          for (const t of affected) if (t.groupId == null) t.groupId = g.id;
+          persist();
+          renderAll();
+        }
       }
-    });
+    );
   }
 
   /**
@@ -310,7 +333,7 @@
     let html = `<button class="g-chip${state.activeGroup === 'all' ? ' active' : ''}" data-g="all">
       <span class="g-name">全部</span><span class="g-count">${openAll}</span></button>`;
     html += gs.map((g) => `
-      <button class="g-chip${state.activeGroup === g.id ? ' active' : ''}" data-g="${g.id}" style="--g-color:${g.color}" title="点击筛选 · 双击重命名">
+      <button class="g-chip${state.activeGroup === g.id ? ' active' : ''}" data-g="${g.id}" style="--g-color:${g.color}" title="点击筛选 · 双击重命名 · 右键删除">
         <span class="g-dot"></span><span class="g-name">${esc(g.name)}</span><span class="g-count">${groupCount(g.id)}</span>
       </button>`).join('');
     html += `<button class="g-chip add" data-g="__manage" title="管理分组">＋</button>`;
@@ -1057,7 +1080,7 @@ ${t.recur ? `<div class="recur-stat">
       const ren = e.target.closest('[data-ren]');
       if (ren) { beginGroupRename(ren.closest('.g-man-row'), ren.dataset.ren); return; }
       const del = e.target.closest('[data-del]');
-      if (del) { deleteGroup(del.dataset.del); render(); return; }
+      if (del) { confirmDeleteGroup(del.dataset.del, del); return; } // 先确认是否连任务一起删
     });
 
     pop.addEventListener('dblclick', (e) => {
@@ -1130,6 +1153,15 @@ ${t.recur ? `<div class="recur-stat">
       renderGroups();
       renderList();
     });
+
+    // 右键分组芯片 → 菜单（重命名 / 删除分组）；改名输入框内保留原生菜单
+    $('#groups-bar').addEventListener('contextmenu', (e) => {
+      if (e.target.closest('.g-name-input')) return;
+      const chip = e.target.closest('.g-chip');
+      if (!chip || !chip.dataset.g || chip.dataset.g === 'all' || chip.dataset.g === '__manage') return;
+      e.preventDefault();
+      openChipMenu(chip);
+    });
   }
 
   /** 分组条芯片行内重命名：双击芯片触发（Enter/失焦保存，Esc 取消） */
@@ -1166,6 +1198,58 @@ ${t.recur ? `<div class="recur-stat">
     input.addEventListener('keydown', (ev) => {
       if (ev.key === 'Enter') { ev.preventDefault(); finish(true); }
       if (ev.key === 'Escape') { ev.preventDefault(); finish(false); }
+    });
+  }
+
+  /** 删除分组确认弹层：询问是否连分组下任务一起删（不删 → 任务移入未分组） */
+  function confirmDeleteGroup(gid, anchor) {
+    const g = findGroup(gid);
+    if (!g) return;
+    closeGroupPopover(); // 同屏只保留本弹层（分组管理器等一并关闭）
+    const n = tasks().filter((t) => t.groupId === gid).length;
+    const pop = document.createElement('div');
+    pop.className = 'g-pop del-pop';
+    pop.innerHTML = `
+      <div class="del-title">删除分组「${esc(U.truncate(g.name, 12))}」？</div>
+      <div class="del-sub">${n ? `该分组下有 <b>${n}</b> 个任务` : '该分组下没有任务'}</div>
+      <div class="del-btns">
+        <button class="del-keep" data-c="keep">${n ? '仅删分组，任务移入未分组' : '删除分组'}</button>
+        ${n ? '<button class="del-tasks" data-c="tasks">连任务一起删</button>' : ''}
+        <button class="del-cancel" data-c="cancel">取消</button>
+      </div>`;
+    document.body.appendChild(pop);
+    positionPopover(pop, anchor);
+    pop.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const btn = e.target.closest('[data-c]');
+      if (!btn) return;
+      const c = btn.dataset.c;
+      pop.remove();
+      if (c === 'keep') deleteGroup(gid, { withTasks: false });
+      if (c === 'tasks') deleteGroup(gid, { withTasks: true });
+    });
+  }
+
+  /** 分组芯片右键菜单：重命名 / 删除分组 */
+  function openChipMenu(chip) {
+    const gid = chip.dataset.g;
+    if (!findGroup(gid)) return;
+    closeGroupPopover();
+    const pop = document.createElement('div');
+    pop.className = 'g-pop ctx-pop';
+    pop.innerHTML = `
+      <button class="ctx-item" data-m="ren">${ICON.pencil}<span>重命名</span></button>
+      <button class="ctx-item danger" data-m="del">${ICON.trash}<span>删除分组…</span></button>`;
+    document.body.appendChild(pop);
+    positionPopover(pop, chip);
+    pop.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const item = e.target.closest('.ctx-item');
+      if (!item) return;
+      const m = item.dataset.m;
+      pop.remove();
+      if (m === 'ren') beginChipRename(gid);
+      if (m === 'del') confirmDeleteGroup(gid, chip);
     });
   }
 

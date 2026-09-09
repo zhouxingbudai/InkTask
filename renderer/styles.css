@@ -724,6 +724,58 @@ button {
   animation: pop-in 0.16s ease;
 }
 
+/* 分组芯片右键菜单 */
+.ctx-pop { width: 132px; }
+
+.ctx-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 9px;
+  border-radius: 8px;
+  font-size: 12px;
+  color: var(--text-2);
+  transition: all 0.12s;
+}
+
+.ctx-item svg { width: 13px; height: 13px; opacity: 0.75; }
+.ctx-item:hover { background: var(--surface-hover, rgba(255, 255, 255, 0.06)); color: var(--text); }
+.ctx-item.danger:hover { background: rgba(255, 93, 93, 0.12); color: var(--danger); }
+.ctx-item.danger:hover svg { opacity: 1; }
+
+/* 删除分组确认弹层 */
+.del-pop { width: 240px; gap: 6px; }
+
+.del-title {
+  padding: 3px 4px 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.del-sub { padding: 0 4px 2px; font-size: 11.5px; color: var(--text-3); }
+.del-sub b { color: var(--accent); font-weight: 600; }
+
+.del-btns { display: flex; flex-direction: column; gap: 3px; margin-top: 2px; }
+
+.del-btns button {
+  height: 30px;
+  border-radius: 8px;
+  font-size: 12px;
+  color: var(--text-2);
+  border: 1px solid var(--border);
+  transition: all 0.12s;
+}
+
+.del-keep { background: var(--accent); border-color: transparent; color: #1c1a17 !important; font-weight: 600; }
+.del-keep:hover { filter: brightness(1.08); }
+
+.del-tasks { background: rgba(255, 93, 93, 0.1); border-color: rgba(255, 93, 93, 0.35) !important; color: var(--danger) !important; }
+.del-tasks:hover { background: rgba(255, 93, 93, 0.18); }
+
+.del-cancel:hover { background: var(--surface-hover, rgba(255, 255, 255, 0.06)); color: var(--text); }
+
 .g-pop.manage { width: 248px; }
 
 .g-opt {

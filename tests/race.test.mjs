@@ -187,20 +187,28 @@ test('等时戳广播视为陈旧：不采纳、不破坏当前状态', async ()
   }
 });
 
-test('删除分组带撤销：恢复分组定义与任务归属', async () => {
+test('删除分组（仅删分组）：任务移入未分组且可撤销', async () => {
   const app = await bootApp(cleanDoc());
   try {
-    // 打开分组管理弹层并点击删除
+    // 打开分组管理弹层并点击删除 → 先出现确认弹层
     app.document.querySelector('.g-chip[data-g="__manage"]').dispatchEvent(
       new app.window.MouseEvent('click', { bubbles: true })
     );
     await sleep(30);
-    const delBtn = app.document.querySelector('.g-man-del[data-del="gX"]');
-    assert.ok(delBtn, '分组管理弹层应出现删除按钮');
-    delBtn.dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
+    app.document.querySelector('.g-man-del[data-del="gX"]').dispatchEvent(
+      new app.window.MouseEvent('click', { bubbles: true })
+    );
+    await sleep(30);
+    const confirm = app.document.querySelector('.del-pop');
+    assert.ok(confirm, '删除分组应先弹确认');
+    assert.match(confirm.textContent, /该分组下有.*1.*个任务/, '确认弹层应提示分组下任务数');
+
+    confirm.querySelector('[data-c="keep"]').dispatchEvent(
+      new app.window.MouseEvent('click', { bubbles: true })
+    );
     await sleep(60);
     assert.ok(!app.document.querySelector('.g-chip[data-g="gX"]'), '删除后分组条不应再有该分组');
-    assert.ok(app.document.querySelector('.task[data-id="t1"]'), '任务本体保留');
+    assert.ok(app.document.querySelector('.task[data-id="t1"]'), '仅删分组时任务本体保留');
 
     // 点击 toast 上的「撤销」
     const undoBtn = app.document.querySelector('.toast-act');
@@ -214,6 +222,98 @@ test('删除分组带撤销：恢复分组定义与任务归属', async () => {
     const t1 = saved.tasks.find((t) => t.id === 't1');
     assert.equal(t1.groupId, 'gX', '撤销后任务归属恢复（连分组一起记录）');
     assert.ok(saved.groups.some((g) => g.id === 'gX'), '撤销后分组定义进入保存载荷');
+  } finally {
+    app.close();
+  }
+});
+
+test('右键芯片删除分组：连任务一起删 + 撤销全部恢复', async () => {
+  const app = await bootApp(cleanDoc());
+  try {
+    // 右键分组芯片 → 上下文菜单
+    app.document.querySelector('.g-chip[data-g="gX"]').dispatchEvent(
+      new app.window.MouseEvent('contextmenu', { bubbles: true })
+    );
+    await sleep(30);
+    const menu = app.document.querySelector('.ctx-pop');
+    assert.ok(menu, '右键芯片应弹出菜单');
+    menu.querySelector('.ctx-item[data-m="del"]').dispatchEvent(
+      new app.window.MouseEvent('click', { bubbles: true })
+    );
+    await sleep(30);
+
+    const confirm = app.document.querySelector('.del-pop');
+    assert.ok(confirm, '菜单删除应进入确认弹层');
+    confirm.querySelector('[data-c="tasks"]').dispatchEvent(
+      new app.window.MouseEvent('click', { bubbles: true })
+    );
+    await sleep(60);
+    assert.ok(!app.document.querySelector('.g-chip[data-g="gX"]'), '分组已删除');
+    assert.ok(!app.document.querySelector('.task[data-id="t1"]'), '连任务一起删：任务一并删除');
+
+    // 撤销：分组和任务都应回来
+    app.document.querySelector('.toast-act').dispatchEvent(
+      new app.window.MouseEvent('click', { bubbles: true })
+    );
+    await sleep(60);
+    assert.ok(app.document.querySelector('.g-chip[data-g="gX"]'), '撤销后分组恢复');
+    assert.ok(app.document.querySelector('.task[data-id="t1"]'), '撤销后被删任务恢复');
+
+    await sleep(500);
+    const saved = app.saved[app.saved.length - 1];
+    assert.equal(saved.tasks.find((t) => t.id === 't1').groupId, 'gX', '撤销后任务归属一并恢复');
+    assert.ok(saved.groups.some((g) => g.id === 'gX'), '撤销后分组定义落盘');
+  } finally {
+    app.close();
+  }
+});
+
+test('空分组的删除确认：无连删按钮，直接删除', async () => {
+  const doc = cleanDoc();
+  doc.tasks[0].groupId = null; // gX 存在但没有任何任务
+  const app = await bootApp(doc);
+  try {
+    app.document.querySelector('.g-chip[data-g="gX"]').dispatchEvent(
+      new app.window.MouseEvent('contextmenu', { bubbles: true })
+    );
+    await sleep(30);
+    app.document.querySelector('.ctx-pop .ctx-item[data-m="del"]').dispatchEvent(
+      new app.window.MouseEvent('click', { bubbles: true })
+    );
+    await sleep(30);
+    const confirm = app.document.querySelector('.del-pop');
+    assert.ok(confirm, '空分组也应出现确认弹层');
+    assert.ok(!confirm.querySelector('[data-c="tasks"]'), '空分组不应出现连任务删除按钮');
+    assert.match(confirm.querySelector('[data-c="keep"]').textContent, /删除分组/, '主按钮文案为直接删除');
+
+    confirm.querySelector('[data-c="keep"]').dispatchEvent(
+      new app.window.MouseEvent('click', { bubbles: true })
+    );
+    await sleep(60);
+    assert.ok(!app.document.querySelector('.g-chip[data-g="gX"]'), '空分组被删除');
+    assert.ok(app.document.querySelector('.task[data-id="t1"]'), '未分组的任务不受影响');
+  } finally {
+    app.close();
+  }
+});
+
+test('删除确认弹层可取消：不删除任何东西', async () => {
+  const app = await bootApp(cleanDoc());
+  try {
+    app.document.querySelector('.g-chip[data-g="gX"]').dispatchEvent(
+      new app.window.MouseEvent('contextmenu', { bubbles: true })
+    );
+    await sleep(30);
+    app.document.querySelector('.ctx-pop .ctx-item[data-m="del"]').dispatchEvent(
+      new app.window.MouseEvent('click', { bubbles: true })
+    );
+    await sleep(30);
+    app.document.querySelector('.del-pop [data-c="cancel"]').dispatchEvent(
+      new app.window.MouseEvent('click', { bubbles: true })
+    );
+    await sleep(60);
+    assert.ok(app.document.querySelector('.g-chip[data-g="gX"]'), '取消后分组保留');
+    assert.ok(app.document.querySelector('.task[data-id="t1"]'), '取消后任务保留');
   } finally {
     app.close();
   }
