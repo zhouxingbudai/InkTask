@@ -4,7 +4,7 @@
 
 **眼前事，依次办 —— 深色系 Windows 本地待办**
 
-[![Version](https://img.shields.io/badge/version-1.4.1-ffcc33?style=flat-square)](../../releases)
+[![Version](https://img.shields.io/badge/version-1.7.1-ffcc33?style=flat-square)](../../releases)
 [![Platform](https://img.shields.io/badge/platform-Windows-0078d4?style=flat-square)](../../releases)
 [![Electron](https://img.shields.io/badge/Electron-44-9feaf9?style=flat-square&logo=electron&logoColor=9feaf9)](https://www.electronjs.org/)
 [![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](./LICENSE)
@@ -50,7 +50,7 @@
 
 ![日历弹层](docs/images/shot-calendar.png)
 
-点击「到期」弹出自绘日历：顶部快捷预设（今天 18:00 / 明天 09:00 / 下周一……）、周一开头的迷你日历（今天金色描边、翻月导航）、底部时/分步进器与整点快捷键。选好日期点「确定」生效，「清除到期」一键移除。
+点击「到期」弹出自绘日历：顶部快捷预设（今天 18:00 / 明天 09:00 / 下周一……）、周一开头的迷你日历（今天金色描边、翻月导航）、底部时/分步进器与整点快捷键。选好日期点「确定」生效，「清除到期」一键移除。弹层带智能翻转定位：按钮下方空间不足（如列表底部的任务）时自动向上展开，窗口再小也能完整操作。
 
 ### 全局快捷键
 
@@ -69,7 +69,7 @@
 - **可选行为**：失焦自动隐藏、到期系统通知、开机自启
 - **三种强调色**：灯金 / 青碧 / 紫晶
 - **备份**：设置面板一键导出 / 导入（zip 包含任务与全部内嵌图片，按任务 ID 合并，较新内容胜出）
-- **防误删**：删除任务 5 秒内可撤销
+- **防误删**：删除任务、删除分组 5 秒内可撤销（分组删除前先确认是否连任务一起删）
 - **数据安全**：JSON 原子写入（先写 `.tmp` 再 rename），断电不损坏
 
 ## 下载安装
@@ -102,7 +102,7 @@ cd InkTask
 npm install
 
 npm start        # 开发运行
-npm test         # 单元测试（排序 / 存储 / 重复任务 / 倒计时）
+npm test         # 单元测试（排序 / 存储 / 重复任务 / 倒计时 / 分组持久化 / 竞态回归，70 项）
 npm run dist     # Windows 上产出 NSIS 安装包 + 便携版
 npm run dist:dir # 任意平台产出 dist/win-unpacked/ 可运行目录
 ```
@@ -137,7 +137,7 @@ InkTask/
 │       ├── recur.js      # 重复任务引擎（完成 / 复活 / 连击）
 │       ├── storage.js    # 存储适配（Electron / 浏览器）
 │       └── util.js
-├── tests/                # node:test 单元测试（48 项）
+├── tests/                # node:test 单元测试（70 项）
 ├── docs/
 │   ├── ADR.md            # 架构决策记录
 │   └── images/           # 文档截图
